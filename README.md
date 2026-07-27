@@ -50,12 +50,22 @@ connection lifecycle คือส่วนที่โปรเจกต์น�
 
 ```bash
 pnpm install
-cp .env.example .env        # แล้วเติมค่าใน .env
-pnpm db:migrate             # ต้องมี DATABASE_URL (Neon) ก่อน
+
+# ไม่มี .env ที่ root — Prisma กับ Next หา .env จากโฟลเดอร์ของ app
+# ดู .env.example ว่าตัวไหนไปไฟล์ไหน
+#   apps/web/.env       DATABASE_URL, DIRECT_URL, NEXTAUTH_*, ...
+#   apps/realtime/.env  PORT + REALTIME_*_SECRET (ต้องตรงกับฝั่ง web เป๊ะ)
+
+pnpm db:migrate             # ใช้ DIRECT_URL (ไม่ใช่ pooler)
 pnpm db:seed
-pnpm dev                    # apps/web  → http://localhost:3000
+pnpm dev                    # apps/web      → http://localhost:3000
 pnpm dev:rt                 # apps/realtime → http://localhost:8080/healthz
 ```
+
+**Neon ต้องใช้สอง connection string:** `DATABASE_URL` เป็น pooled endpoint สำหรับรันแอป
+(serverless เปิด-ปิด connection ถี่มาก ต้องมี PgBouncer คั่น) ส่วน `DIRECT_URL` คือ host เดิม
+**ที่ตัด `-pooler` ออก** สำหรับ migration เพราะ transaction pooler ถือ session-level lock
+ที่ `prisma migrate` ต้องใช้ไม่ได้
 
 บัญชีเดโม่หลัง seed: `demo@donate-platform.local` / `demo1234`
 

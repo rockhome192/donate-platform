@@ -14,7 +14,12 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // Pooled endpoint for the app: serverless functions open and drop connections
+  // constantly and would exhaust Postgres without PgBouncer in front.
+  url       = env("DATABASE_URL")
+  // Migrations need session-level locks that a transaction pooler cannot hold,
+  // so they go to the direct endpoint instead.
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
