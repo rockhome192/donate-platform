@@ -1,0 +1,160 @@
+// donate-platform — see DESIGN.md section 6.
+//
+// Money is ALWAYS Int satang. Never Float.
+//
+// NOTE: the index that serves the /missed query lives in a hand-written
+// migration, not here — Prisma cannot express a partial index. See
+// migrations/20260727000001_missed_alerts_index. `prisma db push` will NOT
+// create it; use `prisma migrate`.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STREAMER
+  ADMIN
+}
+
+enum DonationStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  OMISE
+  SLIP
+  MOCK
+}
+
+enum ModerationStatus {
+  CLEAN
+  FLAGGED
+  HIDDEN
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String?
+  role         Role      @default(STREAMER)
+  createdAt    DateTime  @default(now())
+
+  streamer     Streamer?
+}
+
+model Streamer {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  slug        String   @unique
+  displayName String
+  bio         String?  @db.VarChar(300)
+  avatarUrl   String?
+  isActive    Boolean  @default(true)
+  isSuspended Boolean  @default(false)
+
+  /// satang. Enforced in layer-2 validation, NOT in the Zod schema — DESIGN.md 7.1.1
+  minAmount   Int      @default(2000)
+  maxAmount   Int      @default(10000000)
+
+  /// Long-lived secret in the OBS Browser Source URL. Only ever grants the
+  /// overlay page + a 60s ticket; never a session. Rotatable.
+  overlayToken   String   @unique @default(cuid())
+  tokenRotatedAt DateTime @default(now())
+
+  alertSetting AlertSetting?
+  donations    Donation[]
+  payouts      Payout[]
+
+  createdAt   DateTime @default(now())
+}
+
+model AlertSetting {
+  id              String   @id @default(cuid())
+  streamerId      String   @unique
+  streamer        Streamer @relation(fields: [streamerId], references: [id], onDelete: Cascade)
+
+  template        String   @default("{name} โดเนท {amount} บาท") @db.VarChar(120)
+  durationMs      Int      @default(6000)
+  soundUrl        String?
+  imageUrl        String?
+  ttsEnabled      Boolean  @default(false)
+  /// satang — below this the donation is recorded but no alert fires
+  minAlertAmount  Int      @default(2000)
+  profanityFilter Boolean  @default(true)
+}
+
+model Donation {
+  id         String          @id @default(cuid())
+  streamerId String
+  streamer   Streamer        @relation(fields: [streamerId], references: [id])
+
+  donorName  String          @db.VarChar(40)
+  message    String          @default("") @db.VarChar(200)
+  /// satang
+  amount     Int
+  currency   String          @default("THB")
+
+  status     DonationStatus  @default(PENDING)
+  provider   PaymentProvider
+  /// omise charge id
+  providerRef  String?
+  /// slip transRef, if the donation came in via slip verification
+  slipTransRef String?
+
+  moderation ModerationStatus @default(CLEAN)
+  /// Source of truth for "has the overlay shown this yet". NOT client memory —
+  /// OBS restarts lose all of that. NULL + PAID is what /missed returns.
+  alertedAt  DateTime?
+
+  createdAt  DateTime  @default(now())
+  paidAt     DateTime?
+  expiresAt  DateTime
+
+  // Duplicate protection at the DB, not in application code: a SELECT-then-
+  // INSERT loses to a concurrent request. Catch P2002 instead.
+  @@unique([provider, providerRef])
+  @@unique([slipTransRef])
+  @@index([streamerId, createdAt])
+  @@index([status, expiresAt])
+}
+
+/// Idempotency ledger. The PK is the provider's own event id, so a replayed
+/// webhook collides on insert and is a no-op.
+model WebhookEvent {
+  id          String    @id
+  provider    String
+  eventType   String
+  payload     Json
+  receivedAt  DateTime  @default(now())
+  /// NULL = received but not yet processed. Answering the provider 200 early
+  /// gives up ITS retry, so the reconciler sweeps this column. DESIGN.md 7.4
+  processedAt DateTime?
+  attempts    Int       @default(0)
+  lastError   String?
+
+  @@index([provider, receivedAt])
+  @@index([processedAt, attempts])
+}
+
+/// Simulated only. No real funds ever move — this project is sandbox-only.
+model Payout {
+  id         String   @id @default(cuid())
+  streamerId String
+  streamer   Streamer @relation(fields: [streamerId], references: [id])
+  amount     Int
+  status     String   @default("SIMULATED")
+  note       String   @default("DEMO — no real funds transferred")
+  createdAt  DateTime @default(now())
+}

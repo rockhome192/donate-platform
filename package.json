@@ -1,0 +1,23 @@
+{
+  "name": "donate-platform",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @dp/web dev",
+    "dev:rt": "pnpm --filter @dp/realtime dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm --filter @dp/web exec prisma generate",
+    "db:migrate": "pnpm --filter @dp/web exec prisma migrate dev",
+    "db:seed": "pnpm --filter @dp/web exec prisma db seed",
+    "db:studio": "pnpm --filter @dp/web exec prisma studio"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}
