@@ -1,9 +1,38 @@
 @import 'tailwindcss';
 
+/**
+ * DONATR design tokens, lifted from the UI prototype so the built app and the
+ * mock cannot drift apart. Names match the prototype's CSS variables.
+ */
 @theme {
-  --color-ink: #0b0d10;
-  --color-surface: #14181d;
-  --color-accent: #22d3ee;
+  --color-bg: #0c0d13;
+  --color-panel: #15161f;
+  --color-panel2: #1c1e29;
+  --color-overlay: #08090e;
+
+  --color-ink: #f4f5fa;
+  --color-muted: #a9acc0;
+  --color-faint: #83869c;
+
+  --color-line: #282a38;
+  --color-line2: #3a3d4f;
+
+  --color-accent: #ff3b4e;
+  --color-accent2: #e02234;
+
+  /* Amber carries money and alerts throughout. Red is brand and action only —
+     the two never swap roles, or "donation received" starts looking like an error. */
+  --color-money: #ffb020;
+  --color-money2: #ffc94d;
+  --color-money-ink: #1a1206;
+
+  --color-danger: #ff4d5e;
+
+  --font-sans: var(--font-anuphan), system-ui, sans-serif;
+  --font-display: var(--font-bai-jamjuree), var(--font-anuphan), sans-serif;
+  --font-mono: var(--font-space-mono), ui-monospace, monospace;
+  /* Latin digits only: Space Grotesk has the tabular figures amounts need. */
+  --font-numeric: var(--font-space-grotesk), var(--font-anuphan), sans-serif;
 }
 
 html {
@@ -11,6 +40,50 @@ html {
 }
 
 body {
-  background: var(--color-ink);
-  color: #e6edf3;
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+
+::selection {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+@keyframes livedot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-livedot {
+  animation: livedot 1.4s infinite;
+}
+
+@utility animate-fade-up {
+  animation: fade-up 0.5s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { SYSTEM_MAX_SATANG, SYSTEM_MIN_SATANG } from './money.js'
+import { SYSTEM_MAX_SATANG, SYSTEM_MIN_SATANG } from './money'
 
 /**
  * Layer 1 validation only: shape and absolute system bounds.

@@ -17,12 +17,18 @@
 | Milestone | สถานะ |
 |---|---|
 | **M0** — monorepo, Prisma schema, NextAuth, seed | ✅ เสร็จ |
-| M1 — หน้าโดเนท + MockProvider + dashboard | ⬜ |
+| **M1** — หน้าโดเนท + MockProvider + dashboard + validation 2 ชั้น | ✅ เสร็จ |
 | M3 — Omise test mode + webhook + idempotency | ⬜ |
 | M2a — WebSocket server | ⬜ (มีแค่ health check + room registry) |
 | M2b — OBS overlay client | ⬜ |
 | M4 — ตั้งค่า alert, demo mode | ⬜ |
 | M5 — CI + deploy | ⬜ |
+
+**ใช้งานได้จริงตอนนี้:** `/{slug}` กรอกจำนวนเงินแล้วได้ QR (จำลอง) + นับถอยหลัง +
+poll สถานะ, dashboard แสดงประวัติกับยอดรวม, login ด้วยบัญชีเดโม่
+
+**ยังไม่ได้:** โดเนทค้างที่ `PENDING` เพราะสิ่งที่เปลี่ยนเป็น `PAID` คือ webhook ซึ่งอยู่ใน **M3**
+ยอดรวมใน dashboard จึงนับเฉพาะแถวที่ seed ไว้ — ตั้งใจให้เป็นแบบนี้ ไม่ใช่บั๊ก
 
 ---
 
