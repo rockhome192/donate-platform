@@ -1,8 +1,8 @@
 # DESIGN — Donation Platform for Streamers
 
 > **ชื่อโปรเจกต์เป็น placeholder** (`donate-platform`) เปลี่ยนได้ตามใจ
-> **สถานะ:** Design draft — ยังไม่เริ่มเขียนโค้ด
-> **วันที่:** 2026-07-27
+> **สถานะ:** M0 เสร็จแล้ว (monorepo, Prisma schema, NextAuth, seed) — กำลังเริ่ม M1
+> **วันที่:** เขียน 2026-07-27 · แก้ล่าสุด 2026-07-30 (ดู changelog ข้อ 16)
 > **อ้างอิงต้นแบบ:** [hiwdo.com](https://hiwdo.com/) (Next.js เหมือนกัน)
 
 ---
@@ -456,15 +456,33 @@ CREATE INDEX "Donation_pending_alert_idx"
 **ทำไมต้อง partial ไม่ใช่ composite ธรรมดา:** แถวจะหลุดออกจาก index ทันทีที่ `ack` set `alertedAt`
 → index นี้จะมีขนาด**แค่จำนวน alert ที่ยังไม่เด้ง** (ปกติ 0–5 แถว) ไม่ว่าตารางหลักจะโตแค่ไหน
 
+**⚠️ ข้ออ้าง "0–5 แถว" ข้างบนจะเป็นจริงก็ต่อเมื่อ *ทุกแถวที่เข้า index มีทางออก* — และดีไซน์รอบก่อนมีแถวที่ไม่มีทางออก**
+
+`AlertSetting.minAlertAmount` บอกว่าโดเนทที่ต่ำกว่าเกณฑ์ "บันทึกแต่ไม่เด้ง alert" แต่ query ของ `/missed`
+(8.4) กรองแค่ `status='PAID' AND alertedAt IS NULL` ไม่รู้จักเกณฑ์นั้นเลย ผลคือโดเนทต่ำกว่าเกณฑ์จะ
+**ไม่ถูก alert → ไม่ถูก ack → `alertedAt` เป็น NULL ตลอดกาล** มันจะกองอยู่ใน partial index ไม่มีวันหลุด
+และ overlay จะดึงมันกลับมาทั้งกองทุกครั้งที่ reconnect
+
+**กติกา:** `alertedAt` แปลว่า **"จัดการเรื่องการเด้งของแถวนี้จบแล้ว"** ไม่ใช่ "เด้งไปแล้ว"
+ตอน `processWebhookEvent` ถ้า `amount < streamer.alertSetting.minAlertAmount`
+→ **set `alertedAt` ทันทีในทรานแซกชันเดียวกับที่ set `PAID`** แล้วไม่ต้อง publish
+
+ทำแบบนี้แทนที่จะไปเติมเงื่อนไขยอดใน query `/missed` เพราะสองเหตุผล: เกณฑ์แก้ได้ตลอดเวลา
+(ถ้ากรองตอน query โดเนทเก่าจะโผล่มาเด้งย้อนหลังทันทีที่สตรีมเมอร์ลดเกณฑ์ลง) และเงื่อนไข
+`WHERE` ของ partial index ต้องเป็นค่าคงที่ ไม่มีทางอ้างอิงค่าใน `AlertSetting` ได้อยู่แล้ว
+
+> ตอนนี้ค่า default ของ `Streamer.minAmount` กับ `AlertSetting.minAlertAmount` เท่ากันพอดี (2000 สตางค์)
+> ปัญหานี้จึงยังไม่โผล่ — มันจะโผล่วันที่สตรีมเมอร์คนแรกลด `minAmount` ลงเหลือ 10 บาท
+
 > **ข้อจำกัด Prisma:** schema ของ Prisma ยังประกาศ partial index ไม่ได้ ต้อง `prisma migrate dev --create-only`
 > แล้วเติม SQL เองในไฟล์ migration — และ**อย่าลืมว่า `prisma db push` จะไม่พามันไปด้วย**
 
 ### 6.3 State machine ของ Donation
 
 ```
-                 ┌──────────────► EXPIRED  (เลย expiresAt, cron/lazy check)
+                 ┌──────────────► EXPIRED  (เลย expiresAt — sweeper, ดูข้างล่าง)
                  │
-  PENDING ───────┼──────────────► PAID ─────► (alert ส่งแล้ว → alertedAt)
+  PENDING ───────┼──────────────► PAID ─────► alertedAt ถูก set (เด้งแล้ว หรือต่ำกว่าเกณฑ์)
                  │
                  └──────────────► FAILED
 ```
@@ -473,6 +491,23 @@ CREATE INDEX "Donation_pending_alert_idx"
 - เปลี่ยนสถานะได้ทางเดียว: จาก `PENDING` เท่านั้น
 - `PAID` แล้วห้ามกลับ (webhook ซ้ำต้องไม่ทำอะไร)
 - ใช้ `UPDATE ... WHERE id = ? AND status = 'PENDING'` แล้วเช็คจำนวนแถวที่ถูกอัปเดต — ถ้าได้ 0 แปลว่ามีคนทำไปแล้ว **อย่ายิง alert ซ้ำ**
+
+**ใครเป็นคนทำ `PENDING → EXPIRED`** (รอบก่อนเขียนว่า "cron/lazy check" ลอย ๆ ไม่มีเจ้าภาพ):
+
+รวมเข้ากับ **reconciler cron รอบเดียวกัน** ของ 7.4 (ทุก 5 นาที) — งานที่สองของ job เดิม ไม่ใช่ job ใหม่
+
+```sql
+-- grace period อยู่ใน query ไม่ใช่แค่ในคำอธิบาย เหตุผลอยู่ย่อหน้าถัดไป
+UPDATE "Donation" SET status = 'EXPIRED'
+WHERE status = 'PENDING' AND "expiresAt" < now() - interval '2 minutes';
+```
+
+index `[status, expiresAt]` ที่ประกาศไว้ในสคีมามีไว้รับ query นี้โดยเฉพาะ (ก่อนหน้านี้ไม่มีใครใช้มันเลย)
+
+**ลำดับสำคัญ: sweep expiry ต้องรัน *หลัง* reconcile webhook เสมอ** ไม่งั้นจะมีเคสที่ผู้ชมจ่ายตรงเส้น
+webhook เข้ามาแล้วแต่ยังค้างใน `WebhookEvent` ที่ `processedAt IS NULL` แล้วโดน sweeper ปั๊ม `EXPIRED`
+ทับไปก่อน — พอ reconciler มาถึงก็ `UPDATE ... WHERE status='PENDING'` ได้ 0 แถว **เงินเข้าแล้วแต่โดเนทกลายเป็นหมดอายุ**
+(ต่อให้เรียงถูก ก็ต้องเผื่อ grace period ~2 นาทีหลัง `expiresAt` ก่อนปั๊ม `EXPIRED` — ตามที่ query ข้างบนเขียนไว้)
 
 ---
 
@@ -643,6 +678,8 @@ export async function POST(req: Request) {
    (Vercel Cron ฟรีบน Hobby, หรือให้ `apps/realtime` ตั้ง `setInterval` ยิงมาก็ได้)
 4. `processWebhookEvent` ต้อง **idempotent** อยู่แล้ว (`UPDATE ... WHERE status='PENDING'`) → รันซ้ำปลอดภัย
 5. หน้า admin โชว์ event ที่ `attempts >= 5` = ต้องเข้าไปดูด้วยมือ
+6. **cron ตัวเดียวกันนี้ทำ `PENDING → EXPIRED` ต่อในรอบเดียว** — reconcile ก่อน แล้วค่อย sweep expiry
+   **ห้ามสลับลำดับ** เหตุผลอยู่ใน 6.3
 
 > อันนี้ไม่ใช่ over-engineering — มันคือความต่างระหว่าง "ต่อ webhook เป็น" กับ "เข้าใจว่า at-least-once delivery แปลว่าอะไร"
 
@@ -683,7 +720,7 @@ export type AlertPayload = {
 
 | Code | ความหมาย | client ควรทำอะไร |
 |---|---|---|
-| `4001` | ticket ไม่ถูกต้อง / หมดอายุ / ถูกใช้ไปแล้ว | ขอ ticket ใหม่ แล้วต่อใหม่ |
+| `4001` | ticket ไม่ถูกต้อง / หมดอายุ / ถูกใช้ไปแล้ว | ขอ ticket ใหม่ แล้วต่อใหม่ — **แต่ถ้าขอไม่ได้ 404/401 ต้องหยุดถาวร ดู 8.5** |
 | `4002` | streamer ถูกระงับ | **หยุด ห้าม retry** |
 | `4003` | มี overlay ต่ออยู่ครบโควตาแล้ว → **ปฏิเสธตัวที่มาใหม่** | **หยุด ห้าม retry** แสดงข้อความบนจอว่ามี overlay อื่นเปิดอยู่ |
 | `1012` | server กำลัง restart | reconnect ทันที (+jitter) |
@@ -781,8 +818,11 @@ overlay หลุดเน็ต 30 วิ แล้วต่อกลับ →
 `GET /api/overlay/{token}/missed` → คืนโดเนทที่ `status = PAID` **และ** `alertedAt IS NULL`
 → ยัดเข้าคิว → เล่นจบแล้วยิง `POST /api/overlay/{token}/ack` เพื่อ set `alertedAt`
 
-**`alertedAt` คือ source of truth ว่า "เด้งไปแล้วหรือยัง" ไม่ใช่ความจำของ client**
+**`alertedAt` คือ source of truth ว่า "จบเรื่องการเด้งของแถวนี้แล้วหรือยัง" ไม่ใช่ความจำของ client**
 เพราะ OBS ปิด/เปิดใหม่ ความจำหายหมด
+
+> อ่านว่า "จบเรื่องแล้ว" ไม่ใช่ "เด้งแล้ว" — โดเนทที่ต่ำกว่า `minAlertAmount` ก็ถูก set `alertedAt`
+> ตั้งแต่ตอน process ทั้งที่ไม่เคยเด้ง **ถ้าไม่ทำ มันจะค้างใน `/missed` ตลอดกาล** เหตุผลเต็มอยู่ใน 6.2.1
 
 ### 8.5 Heartbeat + Reconnect (ส่วนที่ต้องเขียนเอง)
 
@@ -823,6 +863,27 @@ Jitter จำเป็นจริง: ถ้า server restart แล้ว ove
 - ได้ close code `4002` (ถูกระงับ) → **หยุด ห้าม retry**
 - มี indicator เล็ก ๆ มุมจอ overlay ตอน dev (`?debug=1`) บอกสถานะ connection
 
+**⚠️ ขั้น "ขอ ticket ใหม่" ก็ล้มเหลวถาวรได้ และรอบก่อนไม่ได้เขียนว่าให้ทำอะไร — เป็น livelock แบบเดียวกับ 4003**
+
+`4001` อยู่ในกลุ่ม retry ได้ (ปกติมันแปลว่า ticket หมดอายุ ขอใหม่ก็จบ) แต่ตอนสตรีมเมอร์กด
+**rotate token** WS จะเตะด้วย `4001` เหมือนกัน ทั้งที่ `overlayToken` ใน URL นั้น**ตายถาวรแล้ว**
+→ client reconnect → ขอ ticket → `/api/overlay/{token}/ticket` ตอบ 404 → ถ้าไม่มีกติกาก็จะวนขอไม่หยุด
+ไปชน rate limit ที่เราเพิ่งใส่ไว้ที่ endpoint เดียวกันเอง (8.3)
+
+**กติกาที่ต้องมี — จำแนกด้วย status ของ `/ticket` ไม่ใช่ด้วย close code:**
+
+| ผลของ `GET /ticket` | ความหมาย | client ทำอะไร |
+|---|---|---|
+| `200` | ได้ ticket | ต่อ socket |
+| `404` / `401` | token ถูก rotate หรือไม่มีอยู่จริง | **หยุดถาวร** ขึ้นข้อความบนจอว่า *"URL overlay นี้ถูกเปลี่ยนแล้ว — ไปคัดลอกอันใหม่จาก dashboard"* |
+| `403` | สตรีมเมอร์ถูกระงับ | **หยุดถาวร** (เท่ากับ `4002`) |
+| `429` | ยิงถี่เกิน | backoff ต่อ **แต่เคารพ `Retry-After`** |
+| `5xx` / network | Vercel ล่มชั่วคราว | backoff ต่อตามปกติ |
+
+เหตุผลที่แยกที่นี่แทนที่จะแยกที่ close code: `4001` ตัวเดียวกันเป็นได้ทั้ง "ticket หมดอายุ" (ชั่วคราว)
+และ "token ถูก rotate" (ถาวร) — WS server แยกไม่ออกเพราะมัน**ไม่ได้ต่อ DB** ตามดีไซน์ 8.3
+คนเดียวที่รู้คือ Next.js ตอนตอบ `/ticket` ความรู้จึงต้องมาจากตรงนั้น
+
 ### 8.6 ข้อจำกัดเรื่อง Scale (เขียนใน README ไม่ต้องซ่อน)
 
 rooms เก็บใน memory: `Map<streamerId, Set<WebSocket>>`
@@ -847,7 +908,7 @@ publish ลง Redis แล้วทุก instance กระจายต่อ�
 | `POST` | `/api/donations` | public + rate limit | สร้างโดเนท + charge → คืน QR |
 | `GET` | `/api/donations/{id}/status` | public | poll สถานะ (fallback ถ้า realtime ล่ม) |
 | `POST` | `/api/webhooks/omise` | signature | รับ `charge.complete` |
-| `GET` | `/api/overlay/{token}/ticket` | overlay token **+ rate limit ต่อ token** | ออก JWT อายุ 60 วิ (`jti` ใช้ครั้งเดียว) สำหรับเปิด socket |
+| `GET` | `/api/overlay/{token}/ticket` | overlay token **+ rate limit ต่อ token** | ออก JWT อายุ 60 วิ (`jti` ใช้ครั้งเดียว) สำหรับเปิด socket — **status code เป็นตัวบอก client ว่าให้ retry หรือหยุด ดูตารางใน 8.5 ห้ามยุบทุก error เป็น 400** |
 | `GET` | `/api/overlay/{token}/missed` | overlay token | alert ที่ `PAID` แต่ `alertedAt IS NULL` |
 | `POST` | `/api/overlay/{token}/ack` | overlay token | mark `alertedAt` |
 | `GET` | `/api/me/donations` | session | ประวัติ (paginated) |
@@ -1025,11 +1086,12 @@ webhook + idempotency เป็นจุดขายหลักเท่าก�
 ## 14. คำถามที่ยังต้องตัดสินใจ
 
 1. ~~**Pusher หรือ WebSocket เอง?**~~ — **ตัดสินใจแล้ว 2026-07-27: WebSocket เอง** (Node + `ws` บน Railway) ดูหัวข้อ 5.1
-2. **ทำ Phase 2 (slip) ไหม?** — เพิ่มความน่าสนใจเยอะ แต่กินเวลาอีก 1–2 สัปดาห์
-3. **ชื่อโปรเจกต์/โดเมน** — ใช้ subdomain ของ Vercel ฟรีก่อนได้
-5. **จ่าย Railway $5/เดือนไหวไหมระหว่างหางาน?** — ถ้าไม่อยากจ่าย ให้เดินเส้น polling fallback (12.1)
+2. ~~**ชื่อโปรเจกต์/โดเมน**~~ — **ตัดสินใจแล้ว 2026-07-30: `DONATR`** ตามชื่อใน UI prototype
+   โฟลเดอร์/repo ยังชื่อ `donate-platform` ต่อไป (เปลี่ยนทีหลังไม่คุ้มเสี่ยง) โดเมนใช้ subdomain ของ Vercel ฟรีก่อน
+3. **ทำ Phase 2 (slip) ไหม?** — เพิ่มความน่าสนใจเยอะ แต่กินเวลาอีก 1–2 สัปดาห์
+4. **จ่าย Railway $5/เดือนไหวไหมระหว่างหางาน?** — ถ้าไม่อยากจ่าย ให้เดินเส้น polling fallback (12.1)
    ไปก่อน แล้วค่อยเปิด WS ตอนใกล้สัมภาษณ์จริง เครดิตทดลอง $5 ก้อนแรกใช้ dev ได้สบาย
-4. **จะเขียน README เป็นไทยหรืออังกฤษ?** — แนะนำ **อังกฤษ** (TOEIC 385 → README อังกฤษที่เขียนดีช่วยลบข้อกังขาเรื่องภาษาได้บ้าง แต่ต้องให้ตรวจก่อน)
+5. **จะเขียน README เป็นไทยหรืออังกฤษ?** — แนะนำ **อังกฤษ** (TOEIC 385 → README อังกฤษที่เขียนดีช่วยลบข้อกังขาเรื่องภาษาได้บ้าง แต่ต้องให้ตรวจก่อน)
 
 ---
 
@@ -1048,6 +1110,18 @@ webhook + idempotency เป็นจุดขายหลักเท่าก�
 ---
 
 ## 16. Changelog ของเอกสาร
+
+**2026-07-30 — รอบตรวจก่อนเริ่ม M1** (3 ช่องที่ยังไม่ปิด)
+
+| # | เรื่อง | แก้ที่ |
+|---|---|---|
+| 1 | **`minAlertAmount` ทำให้ partial index โตไม่หยุด** — โดเนทต่ำกว่าเกณฑ์ไม่เคยถูก ack เลยค้างใน `/missed` ตลอดกาล ขัดกับข้ออ้าง "0–5 แถว" ของ 6.2.1 เอง → นิยาม `alertedAt` ใหม่เป็น *"จบเรื่องการเด้งแล้ว"* แล้ว set ตั้งแต่ตอน process | 6.2.1, 6.3, 8.4 |
+| 2 | **rotate token = livelock ตัวที่สอง** — `4001` retry ได้ แต่ `overlayToken` ตายถาวรแล้ว → วนขอ `/ticket` ไปชน rate limit ตัวเอง → แยกด้วย **status code ของ `/ticket`** ไม่ใช่ close code เพราะ WS ไม่ต่อ DB จึงแยกไม่ออก | 8.1, 8.5, 9 |
+| 3 | **`PENDING → EXPIRED` ไม่มีเจ้าภาพ** — 6.3 เขียน "cron/lazy check" ลอย ๆ ไม่มีใน API contract ไม่มีใน milestone และ index `[status, expiresAt]` ไม่มีใครใช้ → ยกให้ reconciler cron ทำต่อในรอบเดียว **หลัง** reconcile เสมอ + grace period | 6.3, 7.4 |
+| — | ตัดสินใจชื่อโปรเจกต์: **DONATR** (ตาม UI prototype) | 14 |
+
+> ข้อ 1 กับ 3 มาจากคำถามเดียวกัน: *"แถวที่เข้าสถานะนี้แล้ว ออกทางไหน"* ทั้งสองที่มีแถวที่เข้าได้แต่ไม่มีทางออก
+> ข้อ 2 คือ livelock แบบเดียวกับ `4003` ที่แก้ไปรอบที่แล้วเป๊ะ ๆ แค่ย้ายไปอยู่ชั้น HTTP แทนชั้น WebSocket
 
 **2026-07-27 — รอบแก้จาก design review** (10 ข้อ + 1 ประเด็น scope)
 

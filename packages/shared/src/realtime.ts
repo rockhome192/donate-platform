@@ -55,17 +55,46 @@ export const CloseCode = {
 
 export type CloseCodeValue = (typeof CloseCode)[keyof typeof CloseCode]
 
-const RETRYABLE: ReadonlySet<number> = new Set([
-  CloseCode.BAD_TICKET,
-  CloseCode.SERVICE_RESTART,
-])
+/**
+ * The terminal set, not the retryable one: unknown codes (network drop = 1006,
+ * proxy hangup, ...) must reconnect, so listing what retries would be a list we
+ * could never finish. Everything not named here comes back.
+ */
+const TERMINAL: ReadonlySet<number> = new Set([CloseCode.SUSPENDED, CloseCode.QUOTA_FULL])
 
 export function shouldReconnect(code: number): boolean {
-  // Unknown codes (network drop = 1006, etc.) are retryable; only the codes we
-  // explicitly declare terminal are not.
-  if (code === CloseCode.SUSPENDED || code === CloseCode.QUOTA_FULL) return false
-  if (RETRYABLE.has(code)) return true
-  return true
+  return !TERMINAL.has(code)
+}
+
+/**
+ * What to do after GET /api/overlay/{token}/ticket. See DESIGN.md 8.5.
+ *
+ * The close code alone cannot answer this. 4001 means both "ticket expired"
+ * (transient, ask for another) and "token was rotated" (permanent, that URL is
+ * dead) — and the WS server cannot tell them apart because by design it never
+ * touches the DB. Only the web app knows, and it says so through this status.
+ */
+export type TicketOutcome =
+  | { action: 'connect' }
+  /** Streamer rotated the token or it never existed. The OBS URL must be replaced. */
+  | { action: 'stop'; reason: 'token-invalid' }
+  | { action: 'stop'; reason: 'suspended' }
+  | { action: 'retry'; retryAfterMs?: number }
+
+export function ticketOutcome(status: number, retryAfterSeconds?: number): TicketOutcome {
+  if (status === 200) return { action: 'connect' }
+  // 404 and 401 are the rotate case: retrying here only burns the rate limit
+  // that /ticket carries for exactly this reason.
+  if (status === 404 || status === 401) return { action: 'stop', reason: 'token-invalid' }
+  if (status === 403) return { action: 'stop', reason: 'suspended' }
+  if (status === 429) {
+    return retryAfterSeconds === undefined
+      ? { action: 'retry' }
+      : { action: 'retry', retryAfterMs: retryAfterSeconds * 1000 }
+  }
+  // 5xx, network failure, anything unrecognised: the web app is having a bad
+  // minute, not saying no. Back off and come back.
+  return { action: 'retry' }
 }
 
 /** Max concurrent overlay sockets per streamer. Number 6 onward gets QUOTA_FULL. */
