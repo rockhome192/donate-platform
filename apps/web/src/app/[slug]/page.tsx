@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { formatBaht } from '@dp/shared'
 import { db } from '@/lib/db'
+import { env } from '@/lib/env'
 import { DonateForm } from './DonateForm'
 
 /**
@@ -80,6 +81,9 @@ export default async function DonatePage({ params }: Params) {
           displayName={streamer.displayName}
           minAmount={streamer.minAmount}
           maxAmount={streamer.maxAmount}
+          // Read on the server so the button cannot appear on a deploy where
+          // the endpoint behind it 404s.
+          demoMode={env.isDemoMode}
         />
       )}
 

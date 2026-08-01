@@ -35,6 +35,29 @@ export const env = {
   paymentProvider: optional('PAYMENT_PROVIDER', 'mock') as 'omise' | 'mock',
 
   /**
+   * Omise test-mode credentials. Getters, not values: PAYMENT_PROVIDER=mock is
+   * the default and a mock deploy must not have to carry Omise keys at all.
+   */
+  get omisePublicKey() {
+    return required('OMISE_PUBLIC_KEY')
+  },
+  get omiseSecretKey() {
+    return required('OMISE_SECRET_KEY')
+  },
+  /** Base64 HMAC key from the Omise dashboard. Decoded before use — DESIGN.md 7.4. */
+  get omiseWebhookSecret() {
+    return required('OMISE_WEBHOOK_SECRET')
+  },
+
+  /**
+   * Shared bearer for POST /api/cron/reconcile. Vercel Cron sends it as
+   * `Authorization: Bearer $CRON_SECRET`; apps/realtime uses the same header.
+   */
+  get cronSecret() {
+    return required('CRON_SECRET')
+  },
+
+  /**
    * Gate for POST /api/demo/complete-donation, which posts a SIMULATED webhook.
    * Anything other than the exact string "true" keeps the endpoint 404.
    */

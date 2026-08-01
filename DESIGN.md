@@ -1,8 +1,8 @@
 # DESIGN — Donation Platform for Streamers
 
-> **ชื่อโปรเจกต์เป็น placeholder** (`donate-platform`) เปลี่ยนได้ตามใจ
-> **สถานะ:** M0 เสร็จแล้ว (monorepo, Prisma schema, NextAuth, seed) — กำลังเริ่ม M1
-> **วันที่:** เขียน 2026-07-27 · แก้ล่าสุด 2026-07-30 (ดู changelog ข้อ 16)
+> **ชื่อโปรเจกต์:** `DONATR` (โฟลเดอร์/repo ยังชื่อ `donate-platform`)
+> **สถานะ:** M0, M1, M3 เสร็จแล้ว — ต่อไปคือ **M2a** (WS server + ticket + rooms)
+> **วันที่:** เขียน 2026-07-27 · แก้ล่าสุด 2026-08-01 (ดู changelog ข้อ 16)
 > **อ้างอิงต้นแบบ:** [hiwdo.com](https://hiwdo.com/) (Next.js เหมือนกัน)
 
 ---
@@ -675,7 +675,11 @@ export async function POST(req: Request) {
 1. `WebhookEvent.processedAt` เป็น `NULL` = ยังไม่เสร็จ (คอลัมน์นี้มีในสคีมาแล้ว — ตอนนี้ได้ใช้จริง)
 2. เก็บ `attempts Int @default(0)` + `lastError String?` เพิ่ม
 3. **Reconciler**: cron ทุก 5 นาที หยิบ event ที่ `processedAt IS NULL` และ `attempts < 5` มาทำใหม่
-   (Vercel Cron ฟรีบน Hobby, หรือให้ `apps/realtime` ตั้ง `setInterval` ยิงมาก็ได้)
+   **แก้ 2026-08-01 — ต้องให้ `apps/realtime` เป็นคนยิง ไม่ใช่ Vercel Cron:** Hobby รัน cron
+   ได้วันละครั้งเท่านั้น และ expression ที่ถี่กว่านั้น **fail ตอน deploy** (ตรวจกับ Vercel docs แล้ว)
+   `apps/realtime` เป็น process ค้างอยู่บน Railway อยู่แล้ว ตั้ง `setInterval` ได้ฟรี
+   ส่วน cron รายวันของ Vercel เก็บไว้เป็น backstop เผื่อ realtime ล่ม —
+   ทั้งสองทางเรียก `POST /api/cron/reconcile` ด้วย `Authorization: Bearer CRON_SECRET`
 4. `processWebhookEvent` ต้อง **idempotent** อยู่แล้ว (`UPDATE ... WHERE status='PENDING'`) → รันซ้ำปลอดภัย
 5. หน้า admin โชว์ event ที่ `attempts >= 5` = ต้องเข้าไปดูด้วยมือ
 6. **cron ตัวเดียวกันนี้ทำ `PENDING → EXPIRED` ต่อในรอบเดียว** — reconcile ก่อน แล้วค่อย sweep expiry
@@ -798,7 +802,7 @@ Next.js อยู่คนละเครื่องกับ WS server → ต
 
 ```
 POST https://realtime.../internal/publish
-X-Signature: sha256=<HMAC(rawBody, REALTIME_INTERNAL_SECRET)>
+X-Signature: sha256=<HMAC("<X-Timestamp>.<rawBody>", REALTIME_INTERNAL_SECRET)>
 X-Timestamp: <unix>
 
 { "streamerId": "...", "message": { "type": "donation.alert", "data": {...} } }
@@ -806,6 +810,9 @@ X-Timestamp: <unix>
 
 - ตรวจ HMAC ด้วย **`crypto.timingSafeEqual`** ไม่ใช่ `===` (กัน timing attack)
 - ปฏิเสธถ้า `X-Timestamp` เก่าเกิน 5 นาที (กัน replay)
+- **แก้ 2026-08-01: ลายเซ็นต้องครอบ timestamp ด้วย** (`<ts>.<body>` ไม่ใช่ `<body>` เฉย ๆ)
+  ไม่งั้นคนดักจับแก้ `X-Timestamp` เองได้โดยลายเซ็นยังผ่าน = หน้าต่าง 5 นาทีไม่ได้กันอะไรเลย
+  ฝั่งส่งอยู่ที่ `apps/web/src/lib/realtime/publish.ts` แล้ว — **M2a ต้อง verify ให้ตรงสกีมนี้**
 - **สำคัญ: ถ้า publish ล้มเหลว ห้าม rollback สถานะ `PAID`** — เงินเข้าจริงแล้ว
   แค่ log ไว้ แล้วปล่อยให้ missed-alerts (8.4) เก็บตกทีหลัง
 
@@ -916,6 +923,7 @@ publish ลง Redis แล้วทุก instance กระจายต่อ�
 | `POST` | `/api/me/overlay/rotate` | session | เปลี่ยน token → **ต้องสั่ง WS ปิด socket เก่าทั้งหมดด้วย `4001`** |
 | `POST` | `/api/me/test-alert` | session | ยิง alert ทดสอบ |
 | `POST` | `/api/demo/complete-donation` | **เฉพาะ `DEMO_MODE=true`** | จำลองจ่ายเงิน |
+| `GET`/`POST` | `/api/cron/reconcile` | `Bearer CRON_SECRET` | reconcile webhook ค้าง **แล้วค่อย** sweep `PENDING → EXPIRED` (ลำดับนี้ห้ามสลับ — 6.3) ยิงจาก `apps/realtime` ทุก 5 นาที + Vercel Cron รายวันเป็น backstop |
 
 **apps/realtime (Railway)** — คนละ service:
 
@@ -1110,6 +1118,23 @@ webhook + idempotency เป็นจุดขายหลักเท่าก�
 ---
 
 ## 16. Changelog ของเอกสาร
+
+**2026-08-01 — สิ่งที่ M3 เจอตอนลงมือทำจริง** (2 ข้อที่ดีไซน์เขียนไว้ผิด + 1 ข้อจำกัดใหม่)
+
+| # | เรื่อง | แก้ที่ |
+|---|---|---|
+| 1 | **"Vercel Cron ฟรีบน Hobby ทุก 5 นาที" ใช้ไม่ได้จริง** — ตรวจกับ Vercel docs 2026-08-01: Hobby รัน cron ได้ **วันละครั้ง** และ expression ที่ถี่กว่านั้น **fail ตอน deploy** ไม่ใช่แค่รันช้า → ถ้าเชื่อตามเดิม โดเนทที่ `after()` พังจะค้าง `PENDING` ได้ถึง 24 ชม. ทั้งที่จ่ายเงินแล้ว **ตัวยิงจริงย้ายไป `apps/realtime`** (process ค้างบน Railway → `setInterval` ทุก 5 นาที) ส่วน cron รายวันของ Vercel เหลือเป็น backstop | 7.4 ข้อ 3 |
+| 2 | **HMAC ของ `/internal/publish` ไม่ครอบ timestamp** — ดีไซน์เขียน `X-Signature: HMAC(rawBody)` แล้ววาง `X-Timestamp` ไว้ข้าง ๆ แปลว่าคนดักจับแก้ timestamp เองได้โดยลายเซ็นยังถูก → หน้าต่าง 5 นาทีกันอะไรไม่ได้เลย **เปลี่ยนเป็นเซ็น `<timestamp>.<body>`** (สกีมเดียวกับที่ Omise ใช้เอง) M2a ต้อง verify ตามนี้ | 8.3.1 |
+| 3 | **ledger ของ `MockProvider` อยู่ใน memory** — บน Vercel ปุ่มเดโม่กับ webhook อาจตกคนละ instance แล้ว retrieve หา charge ไม่เจอ ตอน dev ไม่มีปัญหา ถ้าจะให้เดโม่บน production เชื่อถือได้ต้องย้าย ledger ลง DB — **ยกไปตัดสินใจตอน M5** | README |
+
+> ข้อ 1 กับ 2 เป็นแบบเดียวกับที่เจอในรอบก่อน ๆ: กลไกกันพลาดที่ *เขียนไว้* แต่ **ไม่ได้ทำงานจริง**
+> (cron ที่ deploy ไม่ผ่าน, timestamp ที่ไม่มีอะไรค้ำ) — ข้อที่อันตรายกว่าไม่ได้เขียนไว้เลย
+
+**ตรวจกับเอกสาร Omise แล้ว (2026-08-01):** webhook **มี** ลายเซ็นให้ verify —
+`Omise-Signature` + `Omise-Signature-Timestamp`, HMAC-SHA256 ของ `<timestamp>.<raw body>`,
+คีย์ต้อง **base64-decode ก่อน**, ผลลัพธ์เป็น hex, และตอนหมุน secret จะส่งมา **สองลายเซ็นคั่นด้วยจุลภาค**
+(เช็คแค่ตัวแรก = ปฏิเสธ webhook ทุกใบระหว่างหมุนคีย์) — implement + เทสครบใน
+`lib/payments/omise.ts` แล้ว
 
 **2026-07-30 — รอบตรวจก่อนเริ่ม M1** (3 ช่องที่ยังไม่ปิด)
 

@@ -19,6 +19,8 @@ type Props = {
   minAmount: number
   /** satang */
   maxAmount: number
+  /** DEMO_MODE=true on the server. Shows the simulated-payment button. */
+  demoMode: boolean
 }
 
 type Created = {
@@ -40,6 +42,7 @@ export function DonateForm(props: Props) {
       <QrPanel
         created={created}
         displayName={props.displayName}
+        demoMode={props.demoMode}
         onRestart={() => setCreated(null)}
       />
     )
@@ -237,14 +240,18 @@ function AmountForm({
 function QrPanel({
   created,
   displayName,
+  demoMode,
   onRestart,
 }: {
   created: Created
   displayName: string
+  demoMode: boolean
   onRestart: () => void
 }) {
   const [status, setStatus] = useState<PollStatus>('PENDING')
   const [secondsLeft, setSecondsLeft] = useState(() => secondsUntil(created.expiresAt))
+  const [simulating, setSimulating] = useState(false)
+  const [demoError, setDemoError] = useState<string | null>(null)
 
   // Countdown is local; the server's expiresAt stays the authority on whether
   // the charge is actually dead.
@@ -282,6 +289,31 @@ function QrPanel({
       clearInterval(timer)
     }
   }, [created.donationId, stopped])
+
+  async function simulatePayment() {
+    setSimulating(true)
+    setDemoError(null)
+    try {
+      const res = await fetch('/api/demo/complete-donation', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ donationId: created.donationId }),
+      })
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        setDemoError(body?.error ?? `จำลองไม่สำเร็จ (${res.status})`)
+        return
+      }
+      // No optimistic PAID here. The status only flips once the webhook has
+      // actually walked the pipeline, and the poll above is what reports it —
+      // faking it in the UI would hide the very thing the demo is showing.
+    } catch {
+      setDemoError('เชื่อมต่อไม่ได้')
+    } finally {
+      setSimulating(false)
+    }
+  }
 
   if (status === 'PAID') {
     return (
@@ -342,6 +374,35 @@ function QrPanel({
         รอการชำระเงิน · เหลือ{' '}
         <span className="font-numeric font-semibold text-ink">{formatCountdown(secondsLeft)}</span>
       </div>
+
+      {/*
+        The interview button. It says "simulated" because that is what it is:
+        Omise has no API to settle a test charge, so the demo posts a synthetic
+        webhook signed with MOCK_WEBHOOK_SECRET through the real pipeline —
+        signature check, idempotent insert, after(), retrieve, PAID.
+        DESIGN.md 4.3 forbids labelling this "pay".
+      */}
+      {demoMode && (
+        <div className="mt-6 rounded-xl border border-dashed border-line2 bg-panel2 p-4">
+          <button
+            type="button"
+            disabled={simulating}
+            onClick={simulatePayment}
+            className="w-full rounded-lg bg-accent px-4 py-3 text-sm font-bold text-white hover:bg-accent2 disabled:opacity-60"
+          >
+            {simulating ? 'กำลังส่ง webhook จำลอง…' : 'จำลองการจ่ายเงิน (simulated webhook)'}
+          </button>
+          <p className="mt-2 text-[11px] leading-relaxed text-faint">
+            ไม่มีเงินจริงเคลื่อนไหว — ปุ่มนี้ยิง webhook ที่เซ็นด้วย secret ของ MockProvider
+            เข้า pipeline จริงทั้งเส้น
+          </p>
+          {demoError && (
+            <p role="alert" className="mt-2 text-xs text-danger">
+              {demoError}
+            </p>
+          )}
+        </div>
+      )}
 
       <button
         type="button"

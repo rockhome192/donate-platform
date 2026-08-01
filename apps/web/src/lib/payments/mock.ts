@@ -65,9 +65,15 @@ export class MockProvider implements PaymentProvider {
   }
 
   /**
-   * Same HMAC scheme the real webhook path uses, keyed by MOCK_WEBHOOK_SECRET
-   * so a simulated event can never be signed with the Omise secret or the other
-   * way round. timingSafeEqual, not ===, per DESIGN.md 8.3.1.
+   * HMAC-SHA256 keyed by MOCK_WEBHOOK_SECRET, so a simulated event can never be
+   * signed with the Omise secret or the other way round. timingSafeEqual, not
+   * ===, per DESIGN.md 8.3.1.
+   *
+   * Narrower than the real Omise scheme on purpose: it signs the body alone,
+   * with no timestamp and so no replay window. What makes that acceptable is
+   * that the synthetic event's id is inside the signed body — replaying a
+   * captured request reproduces the same WebhookEvent primary key and is
+   * absorbed as a duplicate. The replay guard is the ledger, not the clock.
    */
   verifyWebhookSignature(rawBody: string, headers: Headers): boolean {
     const secret = process.env.MOCK_WEBHOOK_SECRET
