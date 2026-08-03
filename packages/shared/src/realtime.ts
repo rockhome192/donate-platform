@@ -103,4 +103,34 @@ export const MAX_SOCKETS_PER_STREAMER = 5
 /** Overlay ticket lifetime. Short because it is single-use anyway. */
 export const TICKET_TTL_SECONDS = 60
 
+/**
+ * Issuer/audience on the ticket JWT. Both sides must agree or nothing connects.
+ *
+ * REALTIME_JWT_SECRET signs exactly one kind of token today, so these claims
+ * are not strictly load-bearing yet. They are here because the moment a second
+ * token type shares that secret, a ticket becomes a valid whatever-else — and
+ * that is the sort of thing nobody remembers to add later.
+ */
+export const TICKET_ISSUER = 'dp-web'
+export const TICKET_AUDIENCE = 'dp-realtime'
+
+/**
+ * Vercel and Railway do not share a clock. A ticket that lives 60s cannot
+ * afford a generous tolerance, but zero means a second of drift rejects every
+ * ticket at once — which looks exactly like an outage.
+ */
+export const TICKET_CLOCK_TOLERANCE_SECONDS = 5
+
+/**
+ * Rate limit on GET /api/overlay/{token}/ticket, per overlayToken (DESIGN.md 8.3).
+ *
+ * Sized against the client's own backoff, not against normal use: a healthy
+ * overlay asks for one ticket per connect. The number that matters is what a
+ * BROKEN one does — 8.5's backoff floor is 1s, so a client ignoring its own
+ * rules tops out near 60/min and gets cut off, while a real reconnect storm
+ * (a few tries, then 2s, 4s, 8s...) never comes close.
+ */
+export const TICKET_RATE_LIMIT = 30
+export const TICKET_RATE_WINDOW_SECONDS = 60
+
 export const HEARTBEAT_INTERVAL_MS = 30_000
