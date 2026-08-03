@@ -20,6 +20,8 @@ coverage/
 # editors & OS
 .vscode/
 .idea/
+# third-party agent skills, vendored locally — not part of the product
+.claude/
 .DS_Store
 Thumbs.db
 

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { Route } from 'next'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { signIn } from 'next-auth/react'
+import { ErrorNote, Panel, PanelHeader, buttonClass } from '@/components/ui'
 
 const DEMO_EMAIL = 'demo@donate-platform.local'
 const DEMO_PASSWORD = 'demo1234'
@@ -66,9 +67,9 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={submit} className="mt-8 space-y-4">
+    <form onSubmit={submit} className="mt-7 space-y-4">
       <div>
-        <label htmlFor="email" className="mb-1.5 block text-sm text-muted">
+        <label htmlFor="email" className="mb-1.5 block text-label text-muted">
           อีเมล
         </label>
         <input
@@ -78,12 +79,12 @@ export function LoginForm() {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded-xl border border-line2 bg-bg px-4 py-3 text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+          className="w-full rounded-control border border-line-strong bg-inset px-4 py-3 text-body text-ink placeholder:text-faint"
         />
       </div>
 
       <div>
-        <label htmlFor="password" className="mb-1.5 block text-sm text-muted">
+        <label htmlFor="password" className="mb-1.5 block text-label text-muted">
           รหัสผ่าน
         </label>
         <input
@@ -93,37 +94,27 @@ export function LoginForm() {
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-xl border border-line2 bg-bg px-4 py-3 text-ink focus:border-accent focus:outline-none"
+          className="w-full rounded-control border border-line-strong bg-inset px-4 py-3 text-body text-ink"
         />
       </div>
 
-      {error && (
-        <p role="alert" className="rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full rounded-xl bg-accent px-6 py-3.5 font-display font-bold text-white hover:bg-accent2 disabled:opacity-60"
-      >
+      <button type="submit" disabled={submitting} className={buttonClass('primary', 'lg', 'w-full')}>
         {submitting ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
       </button>
 
-      <div className="rounded-xl border border-line bg-panel p-4 text-center">
-        <p className="text-xs text-faint">บัญชีสาธิตสำหรับทดลองใช้</p>
-        <p className="mt-1 font-mono text-xs text-muted">
-          {DEMO_EMAIL} / {DEMO_PASSWORD}
-        </p>
-        <button
-          type="button"
-          onClick={fillDemo}
-          className="mt-3 text-sm font-semibold text-accent hover:underline"
-        >
-          กรอกให้อัตโนมัติ
-        </button>
-      </div>
+      <Panel>
+        <PanelHeader label="demo account" />
+        <div className="p-4 text-center">
+          <p className="font-mono text-meta break-all text-muted">
+            {DEMO_EMAIL} / {DEMO_PASSWORD}
+          </p>
+          <button type="button" onClick={fillDemo} className={buttonClass('secondary', 'sm', 'mt-3.5')}>
+            กรอกให้อัตโนมัติ
+          </button>
+        </div>
+      </Panel>
     </form>
   )
 }

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { formatBaht } from '@dp/shared'
+import { Panel, TechLabel } from '@/components/ui'
 import { db } from '@/lib/db'
 import { env } from '@/lib/env'
 import { DonateForm } from './DonateForm'
@@ -9,6 +10,12 @@ import { DonateForm } from './DonateForm'
 /**
  * Public donation page — /{slug}. No login: a viewer who has to sign up to say
  * thanks does not say thanks.
+ *
+ * This is the one surface in the console system that stays a transactional
+ * form. The streamer's screens can wear instrumentation; a viewer with a phone
+ * and thirty seconds gets sequence, stable controls and visible state instead.
+ * The identity block is a compact bar rather than the old centred stack, so the
+ * amount — the thing being decided — starts near the top of the viewport.
  */
 
 type Params = { params: Promise<{ slug: string }> }
@@ -48,9 +55,9 @@ export default async function DonatePage({ params }: Params) {
   const closed = streamer.isSuspended || !streamer.isActive
 
   return (
-    <main className="mx-auto w-full max-w-xl px-5 py-10">
-      <header className="animate-fade-up text-center">
-        <div className="mx-auto grid size-20 place-items-center overflow-hidden rounded-2xl border border-line2 bg-panel2 font-display text-2xl font-bold text-muted">
+    <div className="mx-auto flex min-h-dvh w-full max-w-xl flex-col px-5 py-8">
+      <header className="flex animate-fade-up items-center gap-3.5">
+        <div className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-panel border border-line-strong bg-surface-2 font-display text-h2 font-bold text-muted">
           {streamer.avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- avatars are arbitrary R2 URLs; next/image would need a remote allowlist per host
             <img src={streamer.avatarUrl} alt="" className="size-full object-cover" />
@@ -58,47 +65,60 @@ export default async function DonatePage({ params }: Params) {
             streamer.displayName.slice(0, 1)
           )}
         </div>
-
-        <h1 className="mt-4 font-display text-2xl font-bold">{streamer.displayName}</h1>
-        <p className="mt-1 font-mono text-xs tracking-widest text-faint">@{streamer.slug}</p>
-        {streamer.bio && (
-          <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted">{streamer.bio}</p>
-        )}
+        <div className="min-w-0">
+          <h1 className="truncate font-display text-h2 font-bold">{streamer.displayName}</h1>
+          <p className="mt-0.5 font-mono text-meta text-faint">@{streamer.slug}</p>
+        </div>
       </header>
 
-      {closed ? (
-        <p
-          role="status"
-          className="mt-8 rounded-xl border border-line2 bg-panel p-5 text-center text-sm text-muted"
-        >
-          {streamer.isSuspended
-            ? 'บัญชีนี้ถูกระงับชั่วคราว ยังรับโดเนทไม่ได้'
-            : `${streamer.displayName} ปิดรับโดเนทอยู่ในขณะนี้`}
-        </p>
-      ) : (
-        <DonateForm
-          slug={streamer.slug}
-          displayName={streamer.displayName}
-          minAmount={streamer.minAmount}
-          maxAmount={streamer.maxAmount}
-          // Read on the server so the button cannot appear on a deploy where
-          // the endpoint behind it 404s.
-          demoMode={env.isDemoMode}
-        />
+      {streamer.bio && (
+        <p className="mt-3 text-label leading-relaxed text-muted">{streamer.bio}</p>
       )}
 
-      <footer className="mt-10 space-y-3 text-center">
-        <p className="text-xs leading-relaxed text-faint">
-          ยอดขั้นต่ำ {formatBaht(streamer.minAmount)} บาท · สูงสุด {formatBaht(streamer.maxAmount)}{' '}
-          บาทต่อครั้ง
+      <main className="flex-1">
+        {closed ? (
+          <Panel className="mt-7 px-5 py-6 text-center">
+            <TechLabel>ปิดรับชั่วคราว</TechLabel>
+            <p role="status" className="mt-2 text-label text-muted">
+              {streamer.isSuspended
+                ? 'บัญชีนี้ถูกระงับชั่วคราว ยังรับโดเนทไม่ได้'
+                : `${streamer.displayName} ปิดรับโดเนทอยู่ในขณะนี้`}
+            </p>
+          </Panel>
+        ) : (
+          <DonateForm
+            slug={streamer.slug}
+            displayName={streamer.displayName}
+            minAmount={streamer.minAmount}
+            maxAmount={streamer.maxAmount}
+            // Read on the server so the button cannot appear on a deploy where
+            // the endpoint behind it 404s.
+            demoMode={env.isDemoMode}
+          />
+        )}
+      </main>
+
+      <footer className="mt-10 space-y-2 border-t border-line pt-5 text-meta text-faint">
+        <p>
+          ยอดขั้นต่ำ{' '}
+          <span className="font-numeric tabular-nums text-muted">
+            ฿{formatBaht(streamer.minAmount)}
+          </span>{' '}
+          · สูงสุด{' '}
+          <span className="font-numeric tabular-nums text-muted">
+            ฿{formatBaht(streamer.maxAmount)}
+          </span>{' '}
+          ต่อครั้ง
         </p>
-        <p className="text-xs text-faint">
-          ข้อความที่ส่งจะแสดงบนหน้าจอสตรีม — โปรดใช้ถ้อยคำสุภาพ
-        </p>
-        <Link href="/" className="inline-block font-mono text-[11px] tracking-widest text-faint hover:text-accent">
-          DONATR
+        <p>ข้อความที่ส่งจะแสดงบนหน้าจอสตรีม — โปรดใช้ถ้อยคำสุภาพ</p>
+        {/* py-2 is not decoration: the label alone measured 50x22, under the
+            24px minimum touch target. */}
+        {/* accent-text, not accent: this label is 11px, and the fill violet
+            only reaches 3.45:1 on the canvas — under AA for text that size. */}
+        <Link href="/" className="inline-flex items-center py-2">
+          <TechLabel className="hover:text-accent-text">DONATR</TechLabel>
         </Link>
       </footer>
-    </main>
+    </div>
   )
 }

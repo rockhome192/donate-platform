@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createDonationSchema, formatBaht, toBaht, toSatang } from '@dp/shared'
+import { ErrorNote, LiveDot, Panel, PanelHeader, StatusTrack, buttonClass } from '@/components/ui'
 
 /**
  * Two screens in one component: the form, then the QR it turns into.
@@ -10,6 +11,11 @@ import { createDonationSchema, formatBaht, toBaht, toSatang } from '@dp/shared'
  * DESIGN.md 7.1.1. Client-side it exists to give instant feedback, NOT to
  * protect anything: the server re-parses every field regardless, and the
  * per-streamer limits are only ever enforced there.
+ *
+ * Presentation follows the transactional-surface rules: one sequence, controls
+ * that stay put between states, and every state drawn — not just the happy one.
+ * The status track is the same three stages the landing page shows, so a viewer
+ * who saw it there meets the same vocabulary here.
  */
 
 type Props = {
@@ -33,6 +39,7 @@ type Created = {
 type PollStatus = 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED'
 
 const PRESET_BAHT = [20, 50, 100, 300, 500]
+const TRACK = ['pending', 'paid', 'alerted'] as const
 
 export function DonateForm(props: Props) {
   const [created, setCreated] = useState<Created | null>(null)
@@ -125,112 +132,116 @@ function AmountForm({
   }
 
   return (
-    <form onSubmit={submit} className="mt-8 animate-fade-up space-y-5" noValidate>
-      <fieldset className="rounded-2xl border border-line bg-panel p-5">
-        <legend className="px-1 font-mono text-[11px] tracking-[0.14em] text-faint">จำนวนเงิน</legend>
+    <form onSubmit={submit} className="mt-7 animate-fade-up space-y-4" noValidate>
+      <Panel>
+        <PanelHeader label="จำนวนเงิน" />
+        <div className="p-4">
+          {/* Grid, not flex-wrap: five chips at 390px wrapped 4+1 and left
+              ฿500 orphaned on its own row. A 3-column grid breaks evenly at
+              any preset count the streamer's min/max leaves behind. */}
+          {presets.length > 0 && (
+            <div className="mb-3.5 grid grid-cols-3 gap-2 sm:grid-cols-5">
+              {presets.map((satang) => {
+                const active = toSatangSafe(amountText) === satang
+                return (
+                  <button
+                    key={satang}
+                    type="button"
+                    onClick={() => setAmountText(String(toBaht(satang)))}
+                    aria-pressed={active}
+                    className={`rounded-chip border px-3.5 py-2 font-numeric text-label font-semibold tabular-nums transition-colors ${
+                      active
+                        ? // Amber, not red. A chosen amount is money; the old
+                          // build painted it with the brand action colour and
+                          // broke the system's own role rule.
+                          'border-money bg-money text-money-ink'
+                        : 'border-line-strong bg-surface-2 text-muted hover:border-money hover:text-ink'
+                    }`}
+                  >
+                    ฿{toBaht(satang).toLocaleString('th-TH')}
+                  </button>
+                )
+              })}
+            </div>
+          )}
 
-        {presets.length > 0 && (
-          <div className="mb-4 flex flex-wrap gap-2">
-            {presets.map((satang) => {
-              const active = toSatangSafe(amountText) === satang
-              return (
-                <button
-                  key={satang}
-                  type="button"
-                  onClick={() => setAmountText(String(toBaht(satang)))}
-                  aria-pressed={active}
-                  className={`rounded-lg border px-3.5 py-2 font-numeric text-sm font-semibold transition-colors ${
-                    active
-                      ? 'border-accent bg-accent text-white'
-                      : 'border-line2 bg-panel2 text-muted hover:border-accent hover:text-ink'
-                  }`}
-                >
-                  ฿{toBaht(satang).toLocaleString('th-TH')}
-                </button>
-              )
-            })}
+          <label htmlFor="amount" className="sr-only">
+            จำนวนเงิน (บาท)
+          </label>
+          <div className="flex items-center gap-3 rounded-control border border-line-strong bg-inset px-4 py-3">
+            <span className="font-numeric text-h2 text-money">฿</span>
+            <input
+              id="amount"
+              name="amount"
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min={toBaht(minAmount)}
+              max={toBaht(maxAmount)}
+              required
+              value={amountText}
+              onChange={(e) => setAmountText(e.target.value)}
+              className="w-full bg-transparent font-numeric text-h1 font-bold tabular-nums text-ink outline-none"
+            />
           </div>
-        )}
-
-        <label htmlFor="amount" className="sr-only">
-          จำนวนเงิน (บาท)
-        </label>
-        <div className="flex items-center gap-3 rounded-xl border border-line2 bg-bg px-4 py-3 focus-within:border-accent">
-          <span className="font-numeric text-xl text-money">฿</span>
-          <input
-            id="amount"
-            name="amount"
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min={toBaht(minAmount)}
-            max={toBaht(maxAmount)}
-            required
-            value={amountText}
-            onChange={(e) => setAmountText(e.target.value)}
-            className="w-full bg-transparent font-numeric text-2xl font-bold text-ink outline-none"
-          />
         </div>
-      </fieldset>
+      </Panel>
 
-      <div className="space-y-4 rounded-2xl border border-line bg-panel p-5">
-        <div>
-          <label htmlFor="donorName" className="mb-1.5 block text-sm text-muted">
-            ชื่อของคุณ
-          </label>
-          <input
-            id="donorName"
-            name="donorName"
-            maxLength={40}
-            placeholder="ผู้ชมนิรนาม"
-            value={donorName}
-            onChange={(e) => setDonorName(e.target.value)}
-            className="w-full rounded-xl border border-line2 bg-bg px-4 py-3 text-ink placeholder:text-faint focus:border-accent focus:outline-none"
-          />
+      <Panel>
+        <PanelHeader label="ข้อความถึงสตรีมเมอร์" />
+        <div className="space-y-3.5 p-4">
+          <div>
+            <label htmlFor="donorName" className="mb-1.5 block text-label text-muted">
+              ชื่อของคุณ
+            </label>
+            <input
+              id="donorName"
+              name="donorName"
+              maxLength={40}
+              placeholder="ผู้ชมนิรนาม"
+              value={donorName}
+              onChange={(e) => setDonorName(e.target.value)}
+              className="w-full rounded-control border border-line-strong bg-inset px-4 py-3 text-body text-ink placeholder:text-faint"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="message" className="mb-1.5 block text-label text-muted">
+              ข้อความ <span className="text-faint">(ไม่บังคับ)</span>
+            </label>
+            <textarea
+              id="message"
+              name="message"
+              rows={3}
+              maxLength={200}
+              placeholder="ฝากข้อความถึงสตรีมเมอร์"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              className="w-full resize-none rounded-control border border-line-strong bg-inset px-4 py-3 text-body text-ink placeholder:text-faint"
+            />
+            <p className="mt-1.5 text-right font-mono text-micro tabular-nums text-faint">
+              {message.length}/200
+            </p>
+          </div>
+
+          {/* Honeypot: off-screen rather than display:none, which some bots skip. */}
+          <div aria-hidden className="absolute left-[-9999px] h-0 w-0 overflow-hidden">
+            <label htmlFor="website">Website</label>
+            <input
+              id="website"
+              name="website"
+              tabIndex={-1}
+              autoComplete="off"
+              value={honeypot}
+              onChange={(e) => setHoneypot(e.target.value)}
+            />
+          </div>
         </div>
+      </Panel>
 
-        <div>
-          <label htmlFor="message" className="mb-1.5 block text-sm text-muted">
-            ข้อความ <span className="text-faint">(ไม่บังคับ)</span>
-          </label>
-          <textarea
-            id="message"
-            name="message"
-            rows={3}
-            maxLength={200}
-            placeholder="ฝากข้อความถึงสตรีมเมอร์"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            className="w-full resize-none rounded-xl border border-line2 bg-bg px-4 py-3 text-ink placeholder:text-faint focus:border-accent focus:outline-none"
-          />
-          <p className="mt-1 text-right font-mono text-[11px] text-faint">{message.length}/200</p>
-        </div>
+      {error && <ErrorNote>{error}</ErrorNote>}
 
-        {/* Honeypot: off-screen rather than display:none, which some bots skip. */}
-        <div aria-hidden className="absolute left-[-9999px] h-0 w-0 overflow-hidden">
-          <label htmlFor="website">Website</label>
-          <input
-            id="website"
-            name="website"
-            tabIndex={-1}
-            autoComplete="off"
-            value={honeypot}
-            onChange={(e) => setHoneypot(e.target.value)}
-          />
-        </div>
-      </div>
-
-      {error && (
-        <p role="alert" className="rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
-          {error}
-        </p>
-      )}
-
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full rounded-xl bg-accent px-6 py-4 font-display text-base font-bold text-white transition-colors hover:bg-accent2 disabled:opacity-60"
-      >
+      <button type="submit" disabled={submitting} className={buttonClass('primary', 'lg', 'w-full')}>
         {submitting ? 'กำลังสร้าง QR…' : 'ส่งโดเนท'}
       </button>
     </form>
@@ -315,37 +326,64 @@ function QrPanel({
     }
   }
 
+  const failed = status === 'EXPIRED' || status === 'FAILED' || secondsLeft <= 0
+
   if (status === 'PAID') {
     return (
-      <section className="mt-8 animate-fade-up rounded-2xl border border-money/50 bg-money/10 p-8 text-center">
-        <p className="font-display text-xl font-bold text-money">ขอบคุณสำหรับกำลังใจ</p>
-        <p className="mt-2 text-sm text-muted">
-          ส่ง <span className="font-numeric font-semibold text-money">฿{formatBaht(created.amount)}</span>{' '}
-          ให้ {displayName} เรียบร้อยแล้ว (จำลอง)
-        </p>
-        <button
-          type="button"
-          onClick={onRestart}
-          className="mt-6 rounded-xl border border-line2 bg-panel px-5 py-3 text-sm font-semibold text-ink hover:border-accent"
-        >
+      <section className="mt-7 animate-fade-up space-y-4">
+        <Panel className="border-money/45 bg-money/10">
+          <PanelHeader
+            label="paid"
+            right={
+              <span className="flex items-center gap-2 text-meta text-money">
+                <LiveDot live tone="money" />
+                ยืนยันจาก webhook แล้ว
+              </span>
+            }
+          />
+          <div className="px-5 py-7 text-center">
+            <p className="font-numeric text-display font-bold tabular-nums text-money">
+              ฿{formatBaht(created.amount)}
+            </p>
+            <p className="mt-2 text-label text-muted">
+              ส่งให้ {displayName} เรียบร้อยแล้ว — เป็นการจำลอง ไม่มีเงินจริงเคลื่อนไหว
+            </p>
+          </div>
+          <div className="border-t border-money/25 px-4 py-3.5">
+            {/* alerted stays unreached: whether the overlay actually displayed
+                it is recorded in alertedAt on the streamer's side, and this
+                page has no way to observe that. Claiming it would be a lie. */}
+            <StatusTrack steps={TRACK} currentIndex={1} />
+            <p className="mt-2.5 text-micro text-faint">
+              ขั้น alerted เกิดบนจอสตรีมเมอร์ — หน้านี้มองไม่เห็น จึงไม่แสดงว่าสำเร็จ
+            </p>
+          </div>
+        </Panel>
+
+        <button type="button" onClick={onRestart} className={buttonClass('secondary', 'lg', 'w-full')}>
           ส่งอีกครั้ง
         </button>
       </section>
     )
   }
 
-  if (status === 'EXPIRED' || status === 'FAILED' || secondsLeft <= 0) {
+  if (failed) {
     return (
-      <section className="mt-8 animate-fade-up rounded-2xl border border-line2 bg-panel p-8 text-center">
-        <p className="font-display text-lg font-bold text-ink">
-          {status === 'FAILED' ? 'การชำระเงินไม่สำเร็จ' : 'QR หมดอายุแล้ว'}
-        </p>
-        <p className="mt-2 text-sm text-muted">ไม่มีการตัดเงินเกิดขึ้น สร้างรายการใหม่ได้เลย</p>
-        <button
-          type="button"
-          onClick={onRestart}
-          className="mt-6 rounded-xl bg-accent px-5 py-3 text-sm font-bold text-white hover:bg-accent2"
-        >
+      <section className="mt-7 animate-fade-up space-y-4">
+        <Panel>
+          <PanelHeader label={status === 'FAILED' ? 'failed' : 'expired'} />
+          <div className="px-5 py-7 text-center">
+            <p className="font-display text-h2 font-bold text-ink">
+              {status === 'FAILED' ? 'การชำระเงินไม่สำเร็จ' : 'QR หมดอายุแล้ว'}
+            </p>
+            <p className="mt-2 text-label text-muted">ไม่มีการตัดเงินเกิดขึ้น สร้างรายการใหม่ได้เลย</p>
+          </div>
+          <div className="border-t border-line px-4 py-3.5">
+            <StatusTrack steps={TRACK} currentIndex={0} failed />
+          </div>
+        </Panel>
+
+        <button type="button" onClick={onRestart} className={buttonClass('primary', 'lg', 'w-full')}>
           เริ่มใหม่
         </button>
       </section>
@@ -353,27 +391,41 @@ function QrPanel({
   }
 
   return (
-    <section className="mt-8 animate-fade-up rounded-2xl border border-line bg-panel p-6 text-center">
-      <p className="font-mono text-[11px] tracking-[0.14em] text-faint">SCAN TO PAY · DEMO</p>
+    <section className="mt-7 animate-fade-up space-y-4">
+      <Panel>
+        <PanelHeader
+          label="scan to pay"
+          right={
+            <span className="flex items-center gap-2 text-meta text-faint">
+              <LiveDot live tone="accent" />
+              เหลือ{' '}
+              <span className="font-numeric font-semibold tabular-nums text-ink">
+                {formatCountdown(secondsLeft)}
+              </span>
+            </span>
+          }
+        />
 
-      <div className="mx-auto mt-4 w-fit rounded-2xl bg-white p-3">
-        {/* eslint-disable-next-line @next/next/no-img-element -- data: URI from the mock provider; next/image cannot optimise it */}
-        <img src={created.qrImageUrl} alt="QR สำหรับชำระเงิน (จำลอง)" width={240} height={240} />
-      </div>
+        <div className="px-5 py-6 text-center">
+          <div className="mx-auto w-fit rounded-control bg-white p-3">
+            {/* eslint-disable-next-line @next/next/no-img-element -- data: URI from the mock provider; next/image cannot optimise it */}
+            <img src={created.qrImageUrl} alt="QR สำหรับชำระเงิน (จำลอง)" width={240} height={240} />
+          </div>
 
-      <p className="mt-4 font-numeric text-3xl font-bold text-money">
-        ฿{formatBaht(created.amount)}
-      </p>
+          <p className="mt-5 font-numeric text-display font-bold tabular-nums text-money">
+            ฿{formatBaht(created.amount)}
+          </p>
 
-      <p className="mt-3 text-sm text-muted">
-        QR นี้ <strong className="text-ink">สแกนไม่ได้จริง</strong> — โปรเจกต์นี้ไม่รับเงินจริง
-      </p>
+          <p className="mt-2 text-label text-muted">
+            QR นี้ <strong className="font-semibold text-ink">สแกนไม่ได้จริง</strong> —
+            โปรเจกต์นี้ไม่รับเงินจริง
+          </p>
+        </div>
 
-      <div className="mt-5 flex items-center justify-center gap-2 text-sm text-faint">
-        <span className="inline-block size-1.5 animate-livedot rounded-full bg-accent" />
-        รอการชำระเงิน · เหลือ{' '}
-        <span className="font-numeric font-semibold text-ink">{formatCountdown(secondsLeft)}</span>
-      </div>
+        <div className="border-t border-line px-4 py-3.5">
+          <StatusTrack steps={TRACK} currentIndex={0} />
+        </div>
+      </Panel>
 
       {/*
         The interview button. It says "simulated" because that is what it is:
@@ -383,34 +435,31 @@ function QrPanel({
         DESIGN.md 4.3 forbids labelling this "pay".
       */}
       {demoMode && (
-        <div className="mt-6 rounded-xl border border-dashed border-line2 bg-panel2 p-4">
-          <button
-            type="button"
-            disabled={simulating}
-            onClick={simulatePayment}
-            className="w-full rounded-lg bg-accent px-4 py-3 text-sm font-bold text-white hover:bg-accent2 disabled:opacity-60"
-          >
-            {simulating ? 'กำลังส่ง webhook จำลอง…' : 'จำลองการจ่ายเงิน (simulated webhook)'}
-          </button>
-          <p className="mt-2 text-[11px] leading-relaxed text-faint">
-            ไม่มีเงินจริงเคลื่อนไหว — ปุ่มนี้ยิง webhook ที่เซ็นด้วย secret ของ MockProvider
-            เข้า pipeline จริงทั้งเส้น
-          </p>
-          {demoError && (
-            <p role="alert" className="mt-2 text-xs text-danger">
-              {demoError}
+        <Panel className="border-dashed">
+          <PanelHeader label="demo control" />
+          <div className="space-y-2.5 p-4">
+            <button
+              type="button"
+              disabled={simulating}
+              onClick={simulatePayment}
+              className={buttonClass('money', 'md', 'w-full')}
+            >
+              {simulating ? 'กำลังส่ง webhook จำลอง…' : 'จำลองการจ่ายเงิน (simulated webhook)'}
+            </button>
+            <p className="text-micro leading-relaxed text-faint">
+              ไม่มีเงินจริงเคลื่อนไหว — ปุ่มนี้ยิง webhook ที่เซ็นด้วย secret ของ MockProvider
+              เข้า pipeline จริงทั้งเส้น สถานะด้านบนจะเปลี่ยนก็ต่อเมื่อ webhook เดินจบจริง
             </p>
-          )}
-        </div>
+            {demoError && <ErrorNote>{demoError}</ErrorNote>}
+          </div>
+        </Panel>
       )}
 
-      <button
-        type="button"
-        onClick={onRestart}
-        className="mt-6 text-sm text-faint underline underline-offset-4 hover:text-accent"
-      >
-        ยกเลิก
-      </button>
+      <div className="text-center">
+        <button type="button" onClick={onRestart} className={buttonClass('quiet', 'sm')}>
+          ยกเลิก
+        </button>
+      </div>
     </section>
   )
 }

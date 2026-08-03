@@ -1,38 +1,110 @@
 @import 'tailwindcss';
 
 /**
- * DONATR design tokens, lifted from the UI prototype so the built app and the
- * mock cannot drift apart. Names match the prototype's CSS variables.
+ * DONATR system contract — "broadcast console".
+ *
+ * Thesis: a console for Thai streamers and their viewers, ordered by the path a
+ * donation actually takes from scan to on-air, expressed as precise
+ * instrumentation, and led by the alert and its transaction state.
+ *
+ * Two rules from the previous system are kept because they were right:
+ * money is amber, brand and action are red, and the two never swap roles.
+ * What changed is that the ramp below now has enough contrast to show it.
  */
+
 @theme {
-  --color-bg: #0c0d13;
-  --color-panel: #15161f;
-  --color-panel2: #1c1e29;
-  --color-overlay: #08090e;
+  /* ---- surfaces -------------------------------------------------------
+     The old ramp put canvas at #0c0d13 and panels at #15161f — about 5%
+     apart, so no card ever read as a card. Each step here is a visible one,
+     and each has a job: canvas holds the page, surface holds a panel, raised
+     holds a control sitting ON a panel, inset holds a field the user types
+     into (sunk, not raised — that is what makes it look editable). */
+  --color-canvas: #0a0b10;
+  --color-surface: #14161f;
+  --color-surface-2: #1c1f2b;
+  --color-inset: #06070b;
 
+  --color-line: #232733;
+  --color-line-strong: #343a4b;
+
+  /* ---- text ---- */
   --color-ink: #f4f5fa;
-  --color-muted: #a9acc0;
-  --color-faint: #83869c;
+  --color-muted: #aab0c4;
+  --color-faint: #7c8296;
 
-  --color-line: #282a38;
-  --color-line2: #3a3d4f;
+  /* ---- roles ----------------------------------------------------------
+     Violet is brand and action. Amber is money. Red is failure, and nothing
+     else. Never swap the first two: the moment a confirmed amount turns into
+     the action colour, "donation received" starts reading as a command — and
+     the old donate page did exactly that on its own preset chips.
 
-  --color-accent: #ff3b4e;
-  --color-accent2: #e02234;
+     Violet was not a taste call. Six roles were already spoken for — amber
+     money, red danger, green live, blue pending, blue focus — and the previous
+     accent was a red one shade off --color-danger, so a primary button and an
+     error message were nearly the same colour. Violet is the only hue left
+     that collides with none of them, so changing it retires that collision
+     instead of papering over it.
 
-  /* Amber carries money and alerts throughout. Red is brand and action only —
-     the two never swap roles, or "donation received" starts looking like an error. */
+     Two tokens, not one, because a single violet cannot do both jobs at AA:
+     --color-accent is a FILL and is dark enough that white text on it reaches
+     5.7:1; --color-accent-text is violet TYPE on a dark surface and is light
+     enough to reach 7.2:1 on --color-canvas. The old single red failed this
+     silently — white on #ff3b4e is 3.51:1, under the 4.5:1 minimum. */
+  --color-accent: #7c3aed;
+  --color-accent-hover: #6d28d9;
+  --color-accent-text: #a78bfa;
+
   --color-money: #ffb020;
-  --color-money2: #ffc94d;
+  --color-money-soft: #ffc94d;
   --color-money-ink: #1a1206;
 
+  /* Status roles for the donation pipeline. The old theme collapsed PENDING,
+     EXPIRED and REFUNDED all into --color-faint, so three different outcomes
+     looked identical in the dashboard. */
+  --color-pending: #7d9ae0;
+  --color-live: #35d07f;
   --color-danger: #ff4d5e;
+
+  /* Red now belongs to failure alone, so an error and a primary action no
+     longer share a hue. Errors still carry a border and a written label on top
+     of the colour — nothing in this system may signal state with colour only,
+     whatever the palette happens to be. */
+  --color-focus: #7db4ff;
+
+  /* ---- type -----------------------------------------------------------
+     The old scale had ten sizes with 76% of all text crammed into the 10-14px
+     band, so nothing existed between "hero" and "metadata". These are roles,
+     not sizes: use the role, and the band fills itself. */
+  --text-display: 2.75rem;
+  --text-display--line-height: 1.1;
+  --text-h1: 1.875rem;
+  --text-h1--line-height: 1.25;
+  --text-h2: 1.375rem;
+  --text-h2--line-height: 1.35;
+  --text-h3: 1.125rem;
+  --text-h3--line-height: 1.45;
+  --text-body: 1rem;
+  --text-body--line-height: 1.65;
+  --text-label: 0.875rem;
+  --text-label--line-height: 1.5;
+  --text-meta: 0.75rem;
+  --text-meta--line-height: 1.5;
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1.45;
 
   --font-sans: var(--font-anuphan), system-ui, sans-serif;
   --font-display: var(--font-bai-jamjuree), var(--font-anuphan), sans-serif;
+  /* Reserved for IDs, timestamps, close codes and status labels — technical
+     content. Not decoration. */
   --font-mono: var(--font-space-mono), ui-monospace, monospace;
   /* Latin digits only: Space Grotesk has the tabular figures amounts need. */
   --font-numeric: var(--font-space-grotesk), var(--font-anuphan), sans-serif;
+
+  /* ---- shape ----------------------------------------------------------
+     Three radii with jobs, replacing the old free mix of lg/xl/2xl. */
+  --radius-panel: 14px;
+  --radius-control: 10px;
+  --radius-chip: 8px;
 }
 
 html {
@@ -40,7 +112,7 @@ html {
 }
 
 body {
-  background: var(--color-bg);
+  background: var(--color-canvas);
   color: var(--color-ink);
 }
 
@@ -49,20 +121,50 @@ body {
   color: #fff;
 }
 
+/* One focus treatment for the whole app. The old system moved a border colour
+   on focus, which is invisible against a dark panel and disappears entirely in
+   forced-colours mode. */
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Firefox draws its own inner ring on invalid inputs; ours is the only one. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline-offset: 0;
+}
+
+/* Thai has no case distinction, so tracking-heavy uppercase labels are a
+   Latin-only device. Applied through this class rather than per-element so a
+   Thai string never lands inside one by accident. */
+@utility label-tech {
+  font-family: var(--font-mono);
+  font-size: var(--text-micro);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* ---- motion ----------------------------------------------------------
+   Motion here reports causality, never atmosphere: a dot pulses only where
+   something is genuinely live, and content rises once when it first arrives. */
+
 @keyframes livedot {
   0%,
   100% {
     opacity: 1;
   }
   50% {
-    opacity: 0.2;
+    opacity: 0.25;
   }
 }
 
 @keyframes fade-up {
   from {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -70,14 +172,30 @@ body {
   }
 }
 
+@keyframes track-advance {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 @utility animate-livedot {
-  animation: livedot 1.4s infinite;
+  animation: livedot 1.6s ease-in-out infinite;
 }
 
 @utility animate-fade-up {
-  animation: fade-up 0.5s ease both;
+  animation: fade-up 0.45s ease both;
 }
 
+@utility animate-track {
+  transform-origin: left;
+  animation: track-advance 0.5s ease both;
+}
+
+/* Reduced motion kills the animation, never the information: every state that
+   an animation communicates is also written in text somewhere on screen. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
