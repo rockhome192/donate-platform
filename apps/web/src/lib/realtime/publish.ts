@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto'
-import type { ServerMessage } from '@dp/shared'
+import { INTERNAL_SIGNATURE_PREFIX, internalSigningPayload, type ServerMessage } from '@dp/shared'
 
 /**
  * Fire-and-forget publish from Next.js (Vercel) to the WebSocket service
@@ -18,7 +18,11 @@ import type { ServerMessage } from '@dp/shared'
  * timestamp beside it, which leaves the timestamp unauthenticated — a replayer
  * just edits X-Timestamp and the signature still verifies, so the 5-minute
  * window guards nothing. Signing `<timestamp>.<body>` (the scheme Omise itself
- * uses) puts the timestamp inside the MAC. The M2a verifier must match this.
+ * uses) puts the timestamp inside the MAC.
+ *
+ * The layout now comes from @dp/shared so the M2a verifier cannot spell it
+ * differently — only the HMAC call itself lives on each side, because shared is
+ * imported by client components and must not pull in node:crypto.
  */
 
 let warnedUnconfigured = false
@@ -44,7 +48,10 @@ export function signInternalRequest(
   timestamp: string,
   secret: string,
 ): string {
-  return `sha256=${createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex')}`
+  const digest = createHmac('sha256', secret)
+    .update(internalSigningPayload(timestamp, rawBody))
+    .digest('hex')
+  return `${INTERNAL_SIGNATURE_PREFIX}${digest}`
 }
 
 export async function publishToOverlay(

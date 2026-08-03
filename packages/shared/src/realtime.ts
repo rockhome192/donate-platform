@@ -97,6 +97,29 @@ export function ticketOutcome(status: number, retryAfterSeconds?: number): Ticke
   return { action: 'retry' }
 }
 
+/**
+ * The exact string signed for the /internal/* routes apps/web calls on
+ * apps/realtime, and the prefix its signature header carries.
+ *
+ * Only the FORMAT lives here, not the HMAC: this package is imported by client
+ * components, so pulling `node:crypto` in through the barrel export would drag
+ * it into the browser bundle. Each side applies its own `createHmac` to this
+ * string — which is fine, because the algorithm is not what drifts. The layout
+ * is, and a sender and receiver that disagree by one byte fail silently: every
+ * alert simply stops arriving and only the /missed sweep covers it.
+ *
+ * `<timestamp>.<rawBody>`, not the body alone. Signing only the body leaves the
+ * timestamp header unauthenticated — a replayer edits it, the signature still
+ * verifies, and the freshness window guards nothing. Omise signs its own
+ * webhooks this way and so does this project's webhook receiver, so all three
+ * agree. DESIGN.md 8.3.1.
+ */
+export function internalSigningPayload(timestamp: string, rawBody: string): string {
+  return `${timestamp}.${rawBody}`
+}
+
+export const INTERNAL_SIGNATURE_PREFIX = 'sha256='
+
 /** Max concurrent overlay sockets per streamer. Number 6 onward gets QUOTA_FULL. */
 export const MAX_SOCKETS_PER_STREAMER = 5
 
