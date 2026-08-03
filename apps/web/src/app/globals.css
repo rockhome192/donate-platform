@@ -181,6 +181,62 @@ select:focus-visible {
   }
 }
 
+/* The alert entering and leaving the stage. This is the product's actual
+   behaviour, not an entrance effect: an OBS alert slides in from the edge it
+   is anchored to, holds, and leaves. */
+@keyframes alert-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes alert-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-14%);
+  }
+}
+
+@utility animate-alert-in {
+  animation: alert-in 0.42s cubic-bezier(0.16, 0.84, 0.44, 1) both;
+}
+
+@utility animate-alert-out {
+  animation: alert-out 0.38s ease-in both;
+}
+
+/**
+ * OBS renders a transparent browser source as a checkerboard, and every
+ * streamer recognises it instantly. Using it here is not decoration — the
+ * overlay really is a transparent source, so this is the honest frame for it.
+ *
+ * Tuned dark rather than OBS's mid-grey: at the real value it would out-shout
+ * the alert, which is the thing the panel exists to show.
+ */
+@utility obs-checker {
+  background-color: #101219;
+  background-image:
+    linear-gradient(45deg, #171a23 25%, transparent 25%),
+    linear-gradient(-45deg, #171a23 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #171a23 75%),
+    linear-gradient(-45deg, transparent 75%, #171a23 75%);
+  background-size: 22px 22px;
+  background-position:
+    0 0,
+    0 11px,
+    11px -11px,
+    -11px 0;
+}
+
 @utility animate-livedot {
   animation: livedot 1.6s ease-in-out infinite;
 }

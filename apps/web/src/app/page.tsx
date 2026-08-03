@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { env } from '@/lib/env'
-import { LiveDot, Panel, PanelHeader, StatusTrack, TechLabel, buttonClass } from '@/components/ui'
+import { OverlayStage } from '@/components/OverlayStage'
+import { Panel, PanelHeader, TechLabel, buttonClass } from '@/components/ui'
 
 /**
  * Landing, as a console.
@@ -58,44 +59,7 @@ export default function HomePage() {
       <main className="animate-fade-up">
         {/* The dominant area. Everything else on the page is sized under it. */}
         <Panel className="mt-8 overflow-hidden">
-          <PanelHeader
-            label="OBS Browser Source"
-            right={
-              <span className="flex items-center gap-2 text-meta text-faint">
-                <LiveDot live={false} />
-                ตัวอย่าง — ยังไม่ได้เชื่อมต่อจริง
-              </span>
-            }
-          />
-
-          <div className="bg-inset px-4 py-8 sm:px-8 sm:py-10">
-            {/* The alert, at the size it actually appears on a stream. This is
-                the product; the copy below it is the caption, not the reverse. */}
-            <div className="mx-auto flex max-w-md items-center gap-4 rounded-panel bg-gradient-to-br from-money-soft to-money px-5 py-4 text-money-ink shadow-lg shadow-black/40">
-              <span className="grid size-12 shrink-0 place-items-center rounded-control bg-black/10 text-h2">
-                🎉
-              </span>
-              <div className="min-w-0">
-                <p className="font-display text-h3 font-bold">
-                  มายด์ โดเนท <span className="font-numeric tabular-nums">฿150</span>
-                </p>
-                <p className="mt-0.5 truncate text-label opacity-80">สู้ ๆ นะคะ ชอบสตรีมมาก 💜</p>
-              </div>
-            </div>
-
-            <p className="mt-4 text-center text-meta text-faint">
-              ภาพจำลองหน้าตา alert — ชื่อ ยอดเงิน และข้อความเป็นข้อมูลสมมติ
-            </p>
-          </div>
-
-          {/* The pipeline, which is the actual engineering on display. */}
-          <div className="border-t border-line px-4 py-4 sm:px-6">
-            <StatusTrack steps={['pending', 'paid', 'alerted']} currentIndex={2} />
-            <p className="mt-3 text-meta leading-relaxed text-faint">
-              ทุกโดเนทเดินผ่านสามสถานะนี้ — สร้าง QR แล้วรอชำระ, webhook ยืนยันว่าจ่ายจริง,
-              แล้วจึงยิงขึ้นจอ ถ้า overlay หลุดตอน alert ออก ระบบเก็บไว้ให้แล้วส่งซ้ำตอนต่อกลับ
-            </p>
-          </div>
+          <OverlayStage />
         </Panel>
 
         <section className="mt-8 grid gap-8 md:grid-cols-[1.1fr_0.9fr] md:items-start">
