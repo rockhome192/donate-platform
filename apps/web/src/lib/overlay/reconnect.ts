@@ -46,6 +46,13 @@ export function afterClose(code: number, attempt: number, opts: DecisionOptions 
     // set is the one we can enumerate and the transient set is not.
     return { action: 'stop', reason: code === 4003 ? 'quota-full' : 'suspended' }
   }
+  // 1012 (server restarting) gets no special case, and that is on purpose even
+  // though DESIGN.md 8.5 words it as "reconnect immediately (+jitter)". A
+  // healthy overlay is at attempt 0 when a redeploy closes it — `attempt` only
+  // resets on `hello` — so it already comes back in 0.5-1s, which is what the
+  // doc is asking for. Special-casing the code instead of the attempt count
+  // would also mean a realtime service stuck in a crash loop sends 1012 every
+  // time and gets hammered at one request per second, forever.
   return { action: 'retry', delayMs: backoffDelay(attempt, opts), attempt: attempt + 1 }
 }
 

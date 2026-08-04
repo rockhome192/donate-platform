@@ -84,10 +84,18 @@ export function OverlayClient({ token, suspended, wsUrl, template, durationMs }:
       })
       if (!res.ok) throw new Error(String(res.status))
     } catch {
-      // Newest last, and bounded: if acks have been failing for an hour the
-      // oldest ids are the least useful thing to keep, and an unbounded array
-      // in a page that runs for eight hours is a leak.
-      unackedRef.current = [...ids, ...unackedRef.current].slice(-ACK_MAX_IDS)
+      // Newest last, and bounded: an unbounded array in a page that runs for
+      // eight hours is a leak, and one request cannot carry more than the cap
+      // anyway.
+      const kept = [...ids, ...unackedRef.current]
+      unackedRef.current = kept.slice(-ACK_MAX_IDS)
+
+      // Anything that fell off is being abandoned by this tab, so the queue has
+      // to forget it too. It is still `alertedAt IS NULL` in the database and
+      // will come back on the next /missed — but only the queue's dedupe set
+      // stands between that redelivery and being silently dropped, and it was
+      // put there by this very alert having played. See AlertQueue.forget.
+      queueRef.current.forget(kept.slice(0, Math.max(0, kept.length - ACK_MAX_IDS)))
     }
   }, [token])
 
@@ -259,6 +267,12 @@ export function OverlayClient({ token, suspended, wsUrl, template, durationMs }:
           // as a 5xx, which is backoff-and-return.
           decision = afterTicket(0, undefined, attempt)
         }
+
+        // The /ticket fetch above can settle after this effect was torn down —
+        // a StrictMode double-mount in dev, or a Fast Refresh. Without this the
+        // discarded loop would still call setStatus/setStopReason and could
+        // flash "overlay stopped" over a connection that is perfectly live.
+        if (cancelled) return
 
         if (decision.action === 'stop') {
           stop(decision.reason)

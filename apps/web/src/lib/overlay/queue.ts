@@ -56,6 +56,20 @@ export class AlertQueue {
     return this.pending.shift()
   }
 
+  /**
+   * Drops ids from the dedupe memory so /missed can deliver them again.
+   *
+   * Called when the client gives up on acking them. Without this the two bounds
+   * disagree in a way that loses alerts permanently: an id whose ack was
+   * abandoned is still in `seen`, so the next /missed hands it back and `push`
+   * silently discards it — the row stays `alertedAt IS NULL` in Postgres,
+   * occupies a slot in every future /missed response, and is never shown again.
+   * Forgetting it is what lets the database's own retry actually work.
+   */
+  forget(ids: readonly string[]): void {
+    for (const id of ids) this.seen.delete(id)
+  }
+
   get size(): number {
     return this.pending.length
   }

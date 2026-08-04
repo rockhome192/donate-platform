@@ -97,3 +97,35 @@ describe('renderAlertTemplate', () => {
     expect(renderAlertTemplate('{name}! {name}!', alert('a'))).toBe('มายด์! มายด์!')
   })
 })
+
+describe('AlertQueue.forget', () => {
+  /**
+   * The bug this exists for: the client abandons an ack, but the id is still in
+   * `seen` because the alert DID play. /missed hands the donation back forever,
+   * push() discards it every time, and it is never shown or acked again.
+   */
+  it('lets an abandoned id be delivered again by /missed', () => {
+    const q = new AlertQueue()
+    q.push(alert('a'))
+    q.shift()
+    expect(q.push(alert('a'))).toBe(false)
+
+    q.forget(['a'])
+
+    expect(q.push(alert('a'))).toBe(true)
+    expect(q.size).toBe(1)
+  })
+
+  it('ignores ids it never saw', () => {
+    const q = new AlertQueue()
+    expect(() => q.forget(['never-seen'])).not.toThrow()
+  })
+
+  it('leaves other ids remembered', () => {
+    const q = new AlertQueue()
+    q.pushAll([alert('a'), alert('b')])
+    q.forget(['a'])
+
+    expect(q.push(alert('b'))).toBe(false)
+  })
+})
