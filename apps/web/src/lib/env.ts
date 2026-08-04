@@ -31,6 +31,19 @@ export const env = {
   get realtimeHttpUrl() {
     return required('REALTIME_HTTP_URL').replace(/\/$/, '')
   },
+  /**
+   * Where the overlay opens its socket. Read here on the SERVER and passed to
+   * the client as a prop rather than read in the browser: Next only inlines
+   * `process.env.NEXT_PUBLIC_*` when it appears literally in client code, and
+   * reaching it through this object would compile to `undefined` at runtime —
+   * which fails as "the overlay never connects", with nothing in any log.
+   *
+   * Browsers refuse ws:// from an https:// page, so this must be wss:// in
+   * production.
+   */
+  get realtimeWsUrl() {
+    return required('NEXT_PUBLIC_REALTIME_WS_URL').replace(/\/$/, '')
+  },
 
   paymentProvider: optional('PAYMENT_PROVIDER', 'mock') as 'omise' | 'mock',
 

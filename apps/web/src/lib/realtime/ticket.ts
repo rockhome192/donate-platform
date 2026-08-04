@@ -55,16 +55,25 @@ export function checkOverlayGate(streamer: OverlayGateInput): OverlayGate {
 }
 
 /**
- * Rate-limit bucket for one overlayToken.
+ * Rate-limit bucket for one overlayToken on one endpoint.
  *
  * Hashed, not raw. The token is a credential, and an unhashed key would print
  * it in every Redis key listing, slow-query log and metrics label that ever
  * touches this bucket. Truncating to 32 hex chars is 128 bits — far past what a
  * counter key needs to stay collision-free.
+ *
+ * The scope keeps the three overlay endpoints in separate buckets. Sharing one
+ * would mean a burst of acks after a raid eats the budget /ticket needs to get
+ * the socket back — the two have nothing to do with each other and must not be
+ * able to starve one another.
  */
-export function overlayTicketRateKey(overlayToken: string): string {
+export function overlayRateKey(scope: 'ticket' | 'missed' | 'ack', overlayToken: string): string {
   const digest = createHash('sha256').update(overlayToken).digest('hex')
-  return `overlay-ticket:${digest.slice(0, 32)}`
+  return `overlay-${scope}:${digest.slice(0, 32)}`
+}
+
+export function overlayTicketRateKey(overlayToken: string): string {
+  return overlayRateKey('ticket', overlayToken)
 }
 
 export type IssuedTicket = {

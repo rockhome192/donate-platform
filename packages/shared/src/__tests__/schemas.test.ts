@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { RESERVED_SLUGS, createDonationSchema, isReservedSlug, streamerSlugSchema } from '../schemas.js'
+import { ACK_MAX_IDS } from '../realtime.js'
+import {
+  RESERVED_SLUGS,
+  ackAlertsSchema,
+  createDonationSchema,
+  isReservedSlug,
+  streamerSlugSchema,
+} from '../schemas.js'
 
 const valid = { slug: 'somchai', donorName: 'ผู้ชม', message: 'สู้ ๆ', amount: 5000 }
 
@@ -68,5 +75,32 @@ describe('reserved slugs', () => {
       (slug) => !/^[a-z0-9][a-z0-9-]*$/.test(slug) || slug.length < 3 || slug.length > 30,
     )
     expect(unclaimable).toEqual([])
+  })
+})
+
+describe('ackAlertsSchema', () => {
+  it('accepts a batch the overlay would actually send', () => {
+    expect(ackAlertsSchema.safeParse({ donationIds: ['don_1', 'don_2'] }).success).toBe(true)
+  })
+
+  it.each([
+    ['no ids at all — nothing to do is a client bug, not a request', { donationIds: [] }],
+    ['a missing field', {}],
+    ['an id that is not a string', { donationIds: [42] }],
+    ['an empty id', { donationIds: [''] }],
+    ['repeated ids', { donationIds: ['don_1', 'don_1'] }],
+    ['more ids than the cap', { donationIds: Array.from({ length: ACK_MAX_IDS + 1 }, (_, i) => `d${i}`) }],
+  ])('rejects %s', (_label, body) => {
+    expect(ackAlertsSchema.safeParse(body).success).toBe(false)
+  })
+
+  /**
+   * The route turns this into one `id IN (...)` update, where a repeat is
+   * silently harmless -- which is exactly why it has to be caught here instead.
+   * Otherwise a client could fill a body to the cap with a single id repeated.
+   */
+  it('accepts exactly the cap', () => {
+    const ids = Array.from({ length: ACK_MAX_IDS }, (_, i) => `d${i}`)
+    expect(ackAlertsSchema.safeParse({ donationIds: ids }).success).toBe(true)
   })
 })

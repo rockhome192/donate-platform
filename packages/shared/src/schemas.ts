@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SYSTEM_MAX_SATANG, SYSTEM_MIN_SATANG } from './money'
+import { ACK_MAX_IDS } from './realtime'
 
 /**
  * Slugs a streamer may never own, because a static route in apps/web already
@@ -88,6 +89,29 @@ export const createDonationSchema = z.object({
 })
 
 export type CreateDonationInput = z.infer<typeof createDonationSchema>
+
+/**
+ * Body of POST /api/overlay/{token}/ack — the overlay reporting that it has
+ * finished playing these donations (DESIGN.md 8.4).
+ *
+ * A batch rather than one id per request, because the failure this endpoint
+ * exists to survive is the network going away: on reconnect the overlay may
+ * have several finished-but-unreported alerts in hand, and one request that
+ * either lands or does not is easier to reason about than five that might
+ * partially land.
+ */
+export const ackAlertsSchema = z.object({
+  donationIds: z
+    .array(z.string().trim().min(1).max(60))
+    .min(1)
+    .max(ACK_MAX_IDS)
+    // The route turns this into a single `id IN (...)` update, and a repeated
+    // id there is silently harmless — but it also means a client could pad a
+    // body to the cap with one id repeated. Cheap to refuse.
+    .refine((ids) => new Set(ids).size === ids.length, 'donationIds ต้องไม่ซ้ำกัน'),
+})
+
+export type AckAlertsInput = z.infer<typeof ackAlertsSchema>
 
 export const alertSettingSchema = z.object({
   template: z.string().trim().min(1).max(120),

@@ -1,0 +1,33 @@
+/**
+ * Makes the overlay route transparent for OBS.
+ *
+ * A Browser Source composites the page over the stream, and it can only do that
+ * where the page paints nothing. Two things paint here by default and BOTH have
+ * to go, which is easy to get half-right:
+ *
+ *   - globals.css sets `body { background: var(--color-canvas) }` — the app's
+ *     dark canvas, which would land on the broadcast as a solid rectangle.
+ *   - `html { color-scheme: dark }` makes the BROWSER paint its own dark
+ *     backdrop underneath, with no element involved. Clearing the body
+ *     background alone leaves this one, and the result looks identical to the
+ *     bug you just thought you fixed.
+ *
+ * Scoping is by IMPORT SITE, not by selector: this file is imported only from
+ * app/(overlay)/layout.tsx, so Next emits it in the CSS for that route branch
+ * and nowhere else. Selectors this blunt would be wrong in globals.css and are
+ * right here for the same reason.
+ *
+ * `!important` rather than relying on cascade order — both rules being
+ * overridden live in globals.css, which the root layout imports, and nothing
+ * guarantees this stylesheet is emitted after it. A silent ordering flip would
+ * put a black box on somebody's stream.
+ */
+
+html,
+body {
+  background: transparent !important;
+  color-scheme: normal !important;
+  /* OBS gives the Browser Source a fixed canvas; a scrollbar inside it would be
+     composited onto the stream as a grey stripe. */
+  overflow: hidden;
+}

@@ -156,4 +156,44 @@ export const TICKET_CLOCK_TOLERANCE_SECONDS = 5
 export const TICKET_RATE_LIMIT = 30
 export const TICKET_RATE_WINDOW_SECONDS = 60
 
+/**
+ * Rate limits on the other two overlay endpoints, per overlayToken.
+ *
+ * /missed is called once per successful connect, so its natural rate is the
+ * reconnect rate — the same shape as /ticket, and sized the same way. /ack is
+ * called once per alert finishing, which during a raid can genuinely burst, so
+ * it gets more headroom: refusing an ack does not lose money, but it does leave
+ * a donation in the partial index to be replayed on the next connect.
+ */
+export const MISSED_RATE_LIMIT = 30
+export const ACK_RATE_LIMIT = 120
+export const OVERLAY_RATE_WINDOW_SECONDS = 60
+
+/**
+ * Cap on one /missed response.
+ *
+ * The partial index (DESIGN.md 6.2.1) normally holds 0-5 rows, so this is not
+ * about the usual case. It is about the one where the realtime service was down
+ * for an hour: without a cap the overlay reconnects, receives every alert of
+ * that hour at once, and plays a queue nobody can stop for the next twenty
+ * minutes. The remainder is not lost — it stays un-acked and arrives on the
+ * next fetch.
+ */
+export const MISSED_ALERTS_LIMIT = 25
+
+/** Cap on one /ack body. The overlay acks one alert at a time; this is slack. */
+export const ACK_MAX_IDS = 50
+
 export const HEARTBEAT_INTERVAL_MS = 30_000
+
+/**
+ * How long the client waits for its own ping to be answered before deciding the
+ * socket is dead and reconnecting.
+ *
+ * The server already runs a protocol-level ping (HEARTBEAT_INTERVAL_MS), which
+ * covers a socket that died silently — but only from the server's side. A
+ * browser tab whose connection dropped without a close frame sees nothing at
+ * all, and OBS would sit there for the rest of the stream showing no alerts.
+ */
+export const CLIENT_PING_INTERVAL_MS = 25_000
+export const CLIENT_PONG_TIMEOUT_MS = 10_000
