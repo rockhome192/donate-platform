@@ -1,7 +1,19 @@
 import type { Metadata } from 'next'
 import { Anuphan, Bai_Jamjuree, Space_Grotesk, Space_Mono } from 'next/font/google'
 import './globals.css'
-import { DemoBanner } from '@/components/DemoBanner'
+
+/**
+ * Deliberately thin: fonts, language, and nothing else.
+ *
+ * The DEMO banner used to live here, which meant EVERY route carried it —
+ * including /overlay/{token}, the page OBS composites onto a live stream. A
+ * banner burned into somebody's broadcast is not a styling problem that can be
+ * fixed downstream; the root layout wraps everything and there is no opting
+ * out. So chrome moved down into app/(site)/layout.tsx, and the overlay sits
+ * in its own group with none of it.
+ *
+ * Route groups change nothing about the URLs — /(site)/page.tsx is still "/".
+ */
 
 // Self-hosted at build time by next/font — no runtime request to Google, so no
 // third party gets a hit every time an overlay reloads mid-stream.
@@ -42,10 +54,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="th"
       className={`${anuphan.variable} ${baiJamjuree.variable} ${spaceMono.variable} ${spaceGrotesk.variable}`}
     >
-      <body className="min-h-dvh font-sans antialiased">
-        <DemoBanner />
-        {children}
-      </body>
+      <body className="min-h-dvh font-sans antialiased">{children}</body>
     </html>
   )
 }
