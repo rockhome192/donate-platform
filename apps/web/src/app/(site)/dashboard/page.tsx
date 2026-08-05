@@ -5,7 +5,9 @@ import { getServerSession } from 'next-auth'
 import { formatBaht } from '@dp/shared'
 import { Panel, PanelHeader, StatBlock, TechLabel, buttonClass } from '@/components/ui'
 import { authOptions } from '@/lib/auth'
+import { DASHBOARD_DAYS, bangkokDayStart, buildDaySeries } from '@/lib/dashboard-stats'
 import { db } from '@/lib/db'
+import { DailyTotals } from './DailyTotals'
 
 /**
  * Streamer console. This is the surface the instrumentation direction is really
@@ -48,18 +50,29 @@ export default async function DashboardPage({ searchParams }: Props) {
   // so — the admin views land in a later milestone.
   if (!streamerId) {
     return (
-      <main className="mx-auto max-w-2xl px-5 py-16">
-        <Panel className="px-5 py-6">
-          <TechLabel>no streamer profile</TechLabel>
-          <p className="mt-2 text-label text-muted">บัญชีนี้ยังไม่มีโปรไฟล์สตรีมเมอร์</p>
-        </Panel>
-      </main>
+      <Panel className="px-5 py-6">
+        <TechLabel>no streamer profile</TechLabel>
+        <p className="mt-2 text-label text-muted">บัญชีนี้ยังไม่มีโปรไฟล์สตรีมเมอร์</p>
+      </Panel>
     )
   }
 
   const page = parsePage((await searchParams).page)
+  const now = new Date()
+  const todayStart = bangkokDayStart(now)
+  const windowStart = new Date(todayStart.getTime() - (DASHBOARD_DAYS - 1) * 86_400_000)
 
-  const [streamer, donations, totalCount, paidTotal, paidCount, pendingCount] = await Promise.all([
+  const [
+    streamer,
+    donations,
+    totalCount,
+    paidTotal,
+    paidCount,
+    pendingCount,
+    todayTotal,
+    donorNames,
+    dailyRows,
+  ] = await Promise.all([
     db.streamer.findUnique({
       where: { id: streamerId },
       select: { slug: true, displayName: true, minAmount: true, maxAmount: true },
@@ -85,40 +98,99 @@ export default async function DashboardPage({ searchParams }: Props) {
     }),
     db.donation.count({ where: { streamerId, status: 'PAID' } }),
     db.donation.count({ where: { streamerId, status: 'PENDING' } }),
+    db.donation.aggregate({
+      where: { streamerId, status: 'PAID', paidAt: { gte: todayStart } },
+      _sum: { amount: true },
+    }),
+    // There are no viewer accounts, so "how many people" is unanswerable and
+    // this counts distinct NAMES instead. The label on the tile says exactly
+    // that — two different people who both typed "มายด์" are one row here, and
+    // calling it a supporter count would be inventing a number.
+    db.donation.groupBy({
+      by: ['donorName'],
+      where: { streamerId, status: 'PAID' },
+    }),
+    /*
+     * Daily totals, bucketed by BANGKOK calendar day.
+     *
+     * Raw SQL because Prisma's groupBy cannot group on a derived expression,
+     * and doing it in JS would mean pulling every paid donation of the week
+     * across the wire to add them up.
+     *
+     * The double AT TIME ZONE is not a typo and is the whole correctness of
+     * this query: the column is `timestamp(3)` WITHOUT a zone holding UTC, so
+     * the first conversion tells Postgres what the naive value means, and the
+     * second moves it to Bangkok. With only the second, every donation between
+     * 00:00 and 07:00 local lands on the previous day.
+     */
+    db.$queryRaw<{ day: Date; total: bigint }[]>`
+      SELECT (("paidAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date AS day,
+             SUM(amount)::bigint AS total
+        FROM "Donation"
+       WHERE "streamerId" = ${streamerId}
+         AND status = 'PAID'
+         AND "paidAt" >= ${windowStart}
+       GROUP BY 1
+       ORDER BY 1
+    `,
   ])
 
   if (!streamer) redirect('/login')
 
   const total = paidTotal._sum.amount ?? 0
+  const today = todayTotal._sum.amount ?? 0
   const average = paidCount > 0 ? Math.round(total / paidCount) : 0
   const lastPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const firstIndex = (page - 1) * PAGE_SIZE
 
+  // SUM() comes back as bigint; the chart works in plain numbers. Safe here —
+  // a day's satang total cannot approach Number.MAX_SAFE_INTEGER.
+  const days = buildDaySeries(
+    dailyRows.map((r) => ({ day: r.day, total: Number(r.total) })),
+    now,
+  )
+
   return (
-    <div className="mx-auto w-full max-w-4xl px-5 py-8">
+    <>
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <TechLabel>dashboard</TechLabel>
+          <TechLabel>// overview</TechLabel>
           <h1 className="mt-1 font-display text-h1 font-bold">{streamer.displayName}</h1>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/dashboard/settings" className={buttonClass('secondary', 'sm')}>
-            ตั้งค่า overlay
-          </Link>
-          <Link href={`/${streamer.slug}`} className={buttonClass('secondary', 'sm')}>
-            เปิดหน้าโดเนท /{streamer.slug}
-          </Link>
-        </div>
+        {/* The nav owns getting around now; what stays here is the one action
+            a streamer takes FROM this screen — hand the link to a viewer. */}
+        <Link href={`/${streamer.slug}`} className={buttonClass('secondary', 'sm')}>
+          เปิดหน้าโดเนท /{streamer.slug}
+        </Link>
       </header>
 
-      <section className="mt-6 grid gap-3 sm:grid-cols-3">
-        <StatBlock label="ยอดรวม (จำลอง)" value={`฿${formatBaht(total)}`} tone="money" />
-        <StatBlock label="จำนวนครั้ง" value={String(paidCount)} />
+      <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatBlock
+          label="ยอดวันนี้"
+          value={`฿${formatBaht(today)}`}
+          tone="money"
+          note="ตามเวลาไทย"
+        />
+        <StatBlock
+          label="ยอดรวมทั้งหมด"
+          value={`฿${formatBaht(total)}`}
+          tone="money"
+          note={`${paidCount} รายการ`}
+        />
+        <StatBlock
+          label="ชื่อผู้โดเนทไม่ซ้ำ"
+          value={String(donorNames.length)}
+          note="นับจากชื่อที่กรอก ไม่ใช่บัญชีผู้ใช้"
+        />
         <StatBlock
           label="เฉลี่ยต่อครั้ง"
           value={paidCount > 0 ? `฿${formatBaht(average)}` : '—'}
           note={paidCount === 0 ? 'ยังไม่มีรายการที่จ่ายแล้ว' : undefined}
         />
+      </section>
+
+      <section className="mt-5">
+        <DailyTotals days={days} />
       </section>
 
       {pendingCount > 0 && (
@@ -225,7 +297,7 @@ export default async function DashboardPage({ searchParams }: Props) {
           )}
         </nav>
       )}
-    </div>
+    </>
   )
 }
 

@@ -98,23 +98,15 @@ export default async function DonatePage({ params }: Params) {
         )}
       </main>
 
+      {/* The min/max line that used to live here now sits under the amount
+          field in DonateForm, where the rule can be read before it is broken. */}
       <footer className="mt-10 space-y-2 border-t border-line pt-5 text-meta text-faint">
-        <p>
-          ยอดขั้นต่ำ{' '}
-          <span className="font-numeric tabular-nums text-muted">
-            ฿{formatBaht(streamer.minAmount)}
-          </span>{' '}
-          · สูงสุด{' '}
-          <span className="font-numeric tabular-nums text-muted">
-            ฿{formatBaht(streamer.maxAmount)}
-          </span>{' '}
-          ต่อครั้ง
-        </p>
         <p>ข้อความที่ส่งจะแสดงบนหน้าจอสตรีม — โปรดใช้ถ้อยคำสุภาพ</p>
         {/* py-2 is not decoration: the label alone measured 50x22, under the
             24px minimum touch target. */}
-        {/* accent-text, not accent: this label is 11px, and the fill violet
-            only reaches 3.45:1 on the canvas — under AA for text that size. */}
+        {/* accent-text, not accent: this label is 11px, and the fill red only
+            reaches 4.16:1 on the canvas — under AA for text that size. The
+            same split as everywhere else: fills fill, type types. */}
         <Link href="/" className="inline-flex items-center py-2">
           <TechLabel className="hover:text-accent-text">DONATR</TechLabel>
         </Link>

@@ -18,11 +18,13 @@ type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'money'
 type ButtonSize = 'sm' | 'md' | 'lg'
 
 const VARIANT: Record<ButtonVariant, string> = {
-  // Violet is action, and it no longer shares a hue with an error message the
-  // way the old red did. White on this fill measures 5.7:1.
+  // Red is action. White on this fill measures 4.72:1 — the v2 mockup's own
+  // darker red, which is why it passes where the mockup's brighter fill did
+  // not. What keeps it apart from an error is form, not hue: this is a solid
+  // block, and an error is a bordered translucent panel (see ErrorNote).
   primary: 'bg-accent text-white hover:bg-accent-hover',
-  // The hover border uses the lighter accent: the fill violet against
-  // --color-surface-2 is only about 3:1, marginal for a non-text cue.
+  // The hover border uses the lighter accent: the fill red against
+  // --color-surface-2 is only 3.47:1, marginal for a non-text cue.
   secondary:
     'border border-line-strong bg-surface-2 text-ink hover:border-accent-text hover:text-ink',
   quiet: 'text-muted underline underline-offset-4 hover:text-ink',
@@ -151,9 +153,15 @@ export function StatusTrack({
 }
 
 /**
- * Error surface. Tinted fill + border + a written prefix, never hue alone —
- * --color-danger is deliberately close to --color-accent, so treatment is what
- * tells an error apart from a button.
+ * Error surface, and the load-bearing half of the decision to bring red back
+ * as the action colour.
+ *
+ * --color-danger now shares a hue with --color-accent, so nothing about the
+ * colour distinguishes this from a primary button — the SHAPE does. A button
+ * is a saturated solid block with white type on it; this is a 12%-opacity
+ * wash behind a 45%-opacity border, with a written "!" and the message in
+ * plain ink. Keep that contrast intact: give this a solid fill and the two
+ * roles collapse into each other again.
  */
 export function ErrorNote({ children }: { children: ReactNode }) {
   return (

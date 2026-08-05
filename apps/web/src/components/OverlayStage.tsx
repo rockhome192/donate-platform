@@ -19,7 +19,8 @@ import { LiveDot, PanelHeader, StatusTrack } from '@/components/ui'
  * failed, and it fails silently, which is the worst kind.
  *
  * Everything shown is labelled sample data. Nothing here reports a real
- * connection: the WebSocket service does not exist yet (M2a).
+ * connection — this panel is a representation, not a live socket, and says so
+ * in its own header.
  */
 
 type Stage = 'static' | 'idle' | 'pending' | 'paid' | 'alerted' | 'leaving' | 'gone'
@@ -37,6 +38,31 @@ const TRACK_INDEX: Record<Stage, number> = {
   gone: 2,
 }
 
+/**
+ * Sample donations, cycled one per pass.
+ *
+ * The alert leaves at the end of its duration because that is what a real one
+ * does — and then the NEXT donation arrives, because that is also what really
+ * happens on a stream. A single alert playing once and leaving an empty
+ * checkerboard for the rest of the visit is the least true version of this
+ * panel, not the most: it shows a stream where exactly one person ever
+ * donated.
+ *
+ * A different donor each pass is what keeps this from being decoration. The
+ * motion rule in globals.css is that movement reports causality — a loop
+ * replaying one identical alert would report nothing, while a queue of
+ * different arrivals is the product's actual behaviour under load.
+ *
+ * Names, amounts and messages are the sample set from the v2 design file, and
+ * the stage labels them as invented in its own caption.
+ */
+const SAMPLES = [
+  { name: 'มายด์', amount: '฿150', message: 'สู้ ๆ นะคะ ชอบสตรีมมาก 💜' },
+  { name: 'บอส', amount: '฿50', message: 'มาส่งกำลังใจครับ' },
+  { name: 'ป่าน', amount: '฿100', message: 'ขอเพลงหน่อยค่ะ' },
+  { name: 'เจได', amount: '฿300', message: 'GG well played' },
+] as const
+
 const SEQUENCE: ReadonlyArray<[Stage, number]> = [
   ['pending', 0],
   ['paid', 650],
@@ -45,11 +71,16 @@ const SEQUENCE: ReadonlyArray<[Stage, number]> = [
   ['gone', 5700],
 ]
 
+/** Quiet stage between two donations. Long enough to read as a gap, not a stall. */
+const GAP_MS = 1_800
+const CYCLE_MS = 5_700 + GAP_MS
+
 export function OverlayStage() {
   // Starts at the finished state so a viewer without JS, or with a broken
   // hydration, still sees a complete, sensible panel.
   const [stage, setStage] = useState<Stage>('static')
   const [enhanced, setEnhanced] = useState(false)
+  const [sample, setSample] = useState(0)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   const stageRef = useRef<HTMLDivElement>(null)
 
@@ -64,6 +95,15 @@ export function OverlayStage() {
     // A frame of idle first, so replaying restarts the animation instead of
     // the browser seeing an unchanged class and skipping it.
     timers.current = SEQUENCE.map(([next, at]) => setTimeout(() => setStage(next), at + 40))
+    // The next donation. Scheduled from here rather than chained off the last
+    // stage so one cleared timer array stops the whole cycle — a loop that
+    // reschedules itself from inside a callback outlives its own cleanup.
+    timers.current.push(
+      setTimeout(() => {
+        setSample((i) => (i + 1) % SAMPLES.length)
+        play()
+      }, CYCLE_MS),
+    )
   }, [clearTimers])
 
   useLayoutEffect(() => {
@@ -77,25 +117,30 @@ export function OverlayStage() {
   useEffect(() => {
     if (!enhanced || !stageRef.current) return
 
-    // Play when it is actually on screen, once. An animation that has already
-    // finished by the time the visitor scrolls to it has communicated nothing.
+    /**
+     * Runs only while on screen. Starting on first sight is the original
+     * reason for this — an animation that finished before the visitor scrolled
+     * to it has communicated nothing — but now that the cycle repeats, the
+     * observer also has to STOP it. A landing page quietly running timers and
+     * repaints against a panel nobody is looking at is a battery cost with no
+     * viewer attached, and on a phone that is the difference people feel.
+     */
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          observer.disconnect()
-          play()
-        }
+        const visible = entries.some((e) => e.isIntersecting)
+        if (visible) play()
+        else clearTimers()
       },
       { threshold: 0.4 },
     )
     observer.observe(stageRef.current)
     return () => observer.disconnect()
-  }, [enhanced, play])
+  }, [enhanced, play, clearTimers])
 
   useEffect(() => clearTimers, [clearTimers])
 
   const showAlert = stage === 'static' || stage === 'alerted' || stage === 'leaving'
-  const finished = stage === 'gone'
+  const current = SAMPLES[sample]!
 
   return (
     <>
@@ -135,9 +180,10 @@ export function OverlayStage() {
             </span>
             <div className="min-w-0">
               <p className="truncate font-display text-label font-bold sm:text-h3">
-                มายด์ โดเนท <span className="font-numeric tabular-nums">฿150</span>
+                {current.name} โดเนท{' '}
+                <span className="font-numeric tabular-nums">{current.amount}</span>
               </p>
-              <p className="truncate text-meta opacity-80 sm:text-label">สู้ ๆ นะคะ ชอบสตรีมมาก 💜</p>
+              <p className="truncate text-meta opacity-80 sm:text-label">{current.message}</p>
             </div>
           </div>
         )}
@@ -162,7 +208,7 @@ export function OverlayStage() {
               onClick={play}
               className="label-tech shrink-0 rounded-chip border border-line-strong px-3 py-2 text-muted transition-colors hover:border-accent-text hover:text-ink"
             >
-              {finished ? '▶ เล่นอีกครั้ง' : '▶ เล่นใหม่'}
+              ▶ เล่นอีกครั้ง
             </button>
           )}
         </div>

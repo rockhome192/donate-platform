@@ -184,6 +184,17 @@ function AmountForm({
               className="w-full bg-transparent font-numeric text-h1 font-bold tabular-nums text-ink outline-none"
             />
           </div>
+
+          {/*
+            The bounds belong here, beside the field they bind. They used to sit
+            in the page footer, roughly a thousand pixels below the input — so
+            the rule was only ever read after it had already been broken, in the
+            error message. A limit you find out about by tripping over it is not
+            a limit you were told.
+          */}
+          <p className="label-tech text-faint">
+            MIN ฿{formatBaht(minAmount)} · MAX ฿{formatBaht(maxAmount)}
+          </p>
         </div>
       </Panel>
 

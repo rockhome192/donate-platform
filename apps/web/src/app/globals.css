@@ -7,9 +7,10 @@
  * donation actually takes from scan to on-air, expressed as precise
  * instrumentation, and led by the alert and its transaction state.
  *
- * Two rules from the previous system are kept because they were right:
- * money is amber, brand and action are red, and the two never swap roles.
- * What changed is that the ramp below now has enough contrast to show it.
+ * Two rules are kept from every version of this system because they were
+ * right: money is amber, brand and action are red, and the two never swap
+ * roles. What the v2 pass changes is which red does which job — see the roles
+ * block for why the mockup's own two reds had to trade places to pass AA.
  */
 
 @theme {
@@ -30,29 +31,43 @@
   /* ---- text ---- */
   --color-ink: #f4f5fa;
   --color-muted: #aab0c4;
-  --color-faint: #7c8296;
+  /* Nudged up from #7c8296, which measured 4.29:1 on --color-surface-2 — under
+     the minimum, and this token carries 12px metadata, so it is small text and
+     gets no large-text exemption. It passed on --color-surface and failed one
+     step up, which is exactly the kind of miss that survives a spot check. */
+  --color-faint: #848a9e;
 
   /* ---- roles ----------------------------------------------------------
-     Violet is brand and action. Amber is money. Red is failure, and nothing
-     else. Never swap the first two: the moment a confirmed amount turns into
-     the action colour, "donation received" starts reading as a command — and
-     the old donate page did exactly that on its own preset chips.
+     Red is brand and action. Amber is money. Never swap those two: the moment
+     a confirmed amount turns into the action colour, "donation received"
+     starts reading as a command — and an earlier donate page did exactly that
+     on its own preset chips.
 
-     Violet was not a taste call. Six roles were already spoken for — amber
-     money, red danger, green live, blue pending, blue focus — and the previous
-     accent was a red one shade off --color-danger, so a primary button and an
-     error message were nearly the same colour. Violet is the only hue left
-     that collides with none of them, so changing it retires that collision
-     instead of papering over it.
+     Red returns here from the v2 direction, and the reason the previous system
+     had left it is still real: a red primary button and a red error message
+     were nearly the same thing on screen. It comes back only because that
+     collision is now settled by FORM rather than by hue —
 
-     Two tokens, not one, because a single violet cannot do both jobs at AA:
-     --color-accent is a FILL and is dark enough that white text on it reaches
-     5.7:1; --color-accent-text is violet TYPE on a dark surface and is light
-     enough to reach 7.2:1 on --color-canvas. The old single red failed this
-     silently — white on #ff3b4e is 3.51:1, under the 4.5:1 minimum. */
-  --color-accent: #7c3aed;
-  --color-accent-hover: #6d28d9;
-  --color-accent-text: #a78bfa;
+       action  = a saturated SOLID fill with white type on it
+       failure = a translucent tint, a 1px border, a written "!" and a word
+
+     A solid block and a bordered translucent panel do not read alike even in
+     one hue. What did read alike before was a red OUTLINE button beside a red
+     error border, and nothing in this system uses that shape any more. The
+     rule underneath is unchanged and is the one that actually protects this:
+     nothing may signal state with colour alone.
+
+     Two tokens, not one, because a single red cannot do both jobs at AA — and
+     both values below are the v2 palette's own, with their roles swapped. The
+     mockup filled buttons with #ff3b4e and kept #e02234 for hover, which is
+     backwards: white on #ff3b4e is 3.51:1, under the 4.5:1 minimum, and it is
+     the exact value the previous system failed on. Filling with the darker one
+     takes white to 4.72:1, and the bright one becomes TYPE on dark, where it
+     reaches 5.13:1 on a panel and 5.53:1 on the canvas. Same two colours the
+     design already chose; only the jobs move. */
+  --color-accent: #e02234;
+  --color-accent-hover: #c81e2f;
+  --color-accent-text: #ff3b4e;
 
   --color-money: #ffb020;
   --color-money-soft: #ffc94d;
@@ -63,12 +78,13 @@
      looked identical in the dashboard. */
   --color-pending: #7d9ae0;
   --color-live: #35d07f;
-  --color-danger: #ff4d5e;
+  /* Lighter than --color-accent-text on purpose: sharing the hue with the
+     action colour is a deliberate cost (see above), so the one thing danger
+     must not also share is its VALUE. 6.55:1 on a panel against the accent
+     text's 5.13:1 is a visible step, and it is what keeps a failed row apart
+     from a link in the same table. */
+  --color-danger: #ff6b7a;
 
-  /* Red now belongs to failure alone, so an error and a primary action no
-     longer share a hue. Errors still carry a border and a written label on top
-     of the colour — nothing in this system may signal state with colour only,
-     whatever the palette happens to be. */
   --color-focus: #7db4ff;
 
   /* ---- type -----------------------------------------------------------
