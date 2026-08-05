@@ -197,3 +197,30 @@ export const HEARTBEAT_INTERVAL_MS = 30_000
  */
 export const CLIENT_PING_INTERVAL_MS = 25_000
 export const CLIENT_PONG_TIMEOUT_MS = 10_000
+
+/**
+ * The one sample donation behind both the settings-page preview and
+ * POST /api/me/test-alert.
+ *
+ * Shared so those two cannot disagree. A preview that renders a different name
+ * or amount than the alert the test button actually fires is worse than no
+ * preview: the streamer tunes their template against text that never appears
+ * on stream.
+ *
+ * No id — the endpoint mints a unique one per press, because the overlay queue
+ * dedupes on id and a fixed one would make every press after the first do
+ * nothing.
+ */
+export const TEST_ALERT_SAMPLE = {
+  donorName: 'ทดสอบระบบ',
+  message: 'นี่คือ alert ทดสอบ ไม่ใช่โดเนทจริง',
+  /** satang */
+  amount: 5_000,
+} as const
+
+/**
+ * Prefix on a test alert's id. Nothing branches on it — the value exists so a
+ * test alert reaching POST /ack (which it does, the overlay acks everything it
+ * finishes) is legible as a test rather than a donation id matching no row.
+ */
+export const TEST_ALERT_ID_PREFIX = 'test-'

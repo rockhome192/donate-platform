@@ -21,7 +21,25 @@ export const dynamic = 'force-dynamic'
 
 const PAGE_SIZE = 20
 
-export default async function DashboardPage() {
+/**
+ * Offset pagination, not a cursor.
+ *
+ * A cursor would survive rows being inserted while the streamer reads page 2 —
+ * with `skip` a donation arriving mid-read shifts everything down by one and
+ * can show the same row twice. That is the right trade here anyway: the list is
+ * ordered newest-first, so drift only ever affects the boundary of a page the
+ * reader is walking backwards through, and `?page=3` is a link they can share,
+ * bookmark and go back to. A cursor buys correctness this screen does not need
+ * and costs a URL that means nothing on its own.
+ */
+function parsePage(raw: string | string[] | undefined): number {
+  const n = Number(Array.isArray(raw) ? raw[0] : raw)
+  return Number.isInteger(n) && n > 1 ? n : 1
+}
+
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> }
+
+export default async function DashboardPage({ searchParams }: Props) {
   const session = await getServerSession(authOptions)
   if (!session?.user) redirect('/login?callbackUrl=/dashboard')
 
@@ -39,7 +57,9 @@ export default async function DashboardPage() {
     )
   }
 
-  const [streamer, donations, paidTotal, paidCount, pendingCount] = await Promise.all([
+  const page = parsePage((await searchParams).page)
+
+  const [streamer, donations, totalCount, paidTotal, paidCount, pendingCount] = await Promise.all([
     db.streamer.findUnique({
       where: { id: streamerId },
       select: { slug: true, displayName: true, minAmount: true, maxAmount: true },
@@ -47,6 +67,7 @@ export default async function DashboardPage() {
     db.donation.findMany({
       where: { streamerId },
       orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       select: {
         id: true,
@@ -57,6 +78,7 @@ export default async function DashboardPage() {
         createdAt: true,
       },
     }),
+    db.donation.count({ where: { streamerId } }),
     db.donation.aggregate({
       where: { streamerId, status: 'PAID' },
       _sum: { amount: true },
@@ -69,6 +91,8 @@ export default async function DashboardPage() {
 
   const total = paidTotal._sum.amount ?? 0
   const average = paidCount > 0 ? Math.round(total / paidCount) : 0
+  const lastPage = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+  const firstIndex = (page - 1) * PAGE_SIZE
 
   return (
     <div className="mx-auto w-full max-w-4xl px-5 py-8">
@@ -77,9 +101,14 @@ export default async function DashboardPage() {
           <TechLabel>dashboard</TechLabel>
           <h1 className="mt-1 font-display text-h1 font-bold">{streamer.displayName}</h1>
         </div>
-        <Link href={`/${streamer.slug}`} className={buttonClass('secondary', 'sm')}>
-          เปิดหน้าโดเนท /{streamer.slug}
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/dashboard/settings" className={buttonClass('secondary', 'sm')}>
+            ตั้งค่า overlay
+          </Link>
+          <Link href={`/${streamer.slug}`} className={buttonClass('secondary', 'sm')}>
+            เปิดหน้าโดเนท /{streamer.slug}
+          </Link>
+        </div>
       </header>
 
       <section className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -107,25 +136,37 @@ export default async function DashboardPage() {
           right={
             donations.length > 0 ? (
               <span className="font-mono text-micro tabular-nums text-faint">
-                {donations.length}
+                {firstIndex + 1}–{firstIndex + donations.length} / {totalCount}
               </span>
             ) : undefined
           }
         />
 
         {donations.length === 0 ? (
-          <div className="px-5 py-10 text-center">
-            <p className="text-label text-muted">ยังไม่มีโดเนท</p>
-            <p className="mt-1.5 text-meta text-faint">
-              เปิดหน้าโดเนทแล้วลองส่งดู รายการจะขึ้นที่นี่ทันที
-            </p>
-            <Link
-              href={`/${streamer.slug}`}
-              className={buttonClass('secondary', 'sm', 'mt-5')}
-            >
-              เปิดหน้าโดเนท
-            </Link>
-          </div>
+          // A page past the end is reachable by editing the URL or by rows
+          // being deleted, and "ยังไม่มีโดเนท" would be a lie there — the
+          // streamer has donations, just not on this page.
+          page > 1 ? (
+            <div className="px-5 py-10 text-center">
+              <p className="text-label text-muted">ไม่มีรายการในหน้านี้</p>
+              <Link href="/dashboard" className={buttonClass('secondary', 'sm', 'mt-5')}>
+                กลับหน้าแรกของรายการ
+              </Link>
+            </div>
+          ) : (
+            <div className="px-5 py-10 text-center">
+              <p className="text-label text-muted">ยังไม่มีโดเนท</p>
+              <p className="mt-1.5 text-meta text-faint">
+                เปิดหน้าโดเนทแล้วลองส่งดู รายการจะขึ้นที่นี่ทันที
+              </p>
+              <Link
+                href={`/${streamer.slug}`}
+                className={buttonClass('secondary', 'sm', 'mt-5')}
+              >
+                เปิดหน้าโดเนท
+              </Link>
+            </div>
+          )
         ) : (
           <ul className="divide-y divide-line">
             {donations.map((d) => (
@@ -156,10 +197,33 @@ export default async function DashboardPage() {
         )}
       </Panel>
 
-      {donations.length === PAGE_SIZE && (
-        <p className="mt-3 text-center text-meta text-faint">
-          แสดง {PAGE_SIZE} รายการล่าสุด — หน้าถัดไปมาใน M4
-        </p>
+      {lastPage > 1 && (
+        <nav className="mt-4 flex items-center justify-between gap-3" aria-label="หน้ารายการ">
+          {page > 1 ? (
+            <Link
+              href={page === 2 ? '/dashboard' : `/dashboard?page=${page - 1}`}
+              className={buttonClass('secondary', 'sm')}
+            >
+              ← ใหม่กว่า
+            </Link>
+          ) : (
+            // A disabled span rather than a hidden element: the row keeps its
+            // shape, so the "older" button does not jump sideways between pages.
+            <span aria-hidden />
+          )}
+
+          <span className="font-mono text-micro tabular-nums text-faint">
+            {page} / {lastPage}
+          </span>
+
+          {page < lastPage ? (
+            <Link href={`/dashboard?page=${page + 1}`} className={buttonClass('secondary', 'sm')}>
+              เก่ากว่า →
+            </Link>
+          ) : (
+            <span aria-hidden />
+          )}
+        </nav>
       )}
     </div>
   )

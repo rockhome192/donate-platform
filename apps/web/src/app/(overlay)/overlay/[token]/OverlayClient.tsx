@@ -40,8 +40,13 @@ type Props = {
   suspended: boolean
   /** e.g. ws://localhost:8080 — must be wss:// wherever the page is https. */
   wsUrl: string
-  template: string
-  durationMs: number
+  /**
+   * Server-rendered starting values only. `settings.updated` replaces them on
+   * the live socket, so an edit in the dashboard reaches a browser source that
+   * may have been open since before the stream started.
+   */
+  initialTemplate: string
+  initialDurationMs: number
 }
 
 type Status = 'connecting' | 'live' | 'reconnecting' | 'stopped'
@@ -49,17 +54,37 @@ type Status = 'connecting' | 'live' | 'reconnecting' | 'stopped'
 /** How long the exit animation runs; it is played inside durationMs, not after. */
 const ALERT_OUT_MS = 380
 
-export function OverlayClient({ token, suspended, wsUrl, template, durationMs }: Props) {
+export function OverlayClient({
+  token,
+  suspended,
+  wsUrl,
+  initialTemplate,
+  initialDurationMs,
+}: Props) {
   const [status, setStatus] = useState<Status>('connecting')
   const [stopReason, setStopReason] = useState<StopReason | null>(null)
   const [current, setCurrent] = useState<{ alert: AlertPayload; leaving: boolean } | null>(null)
   const [debug, setDebug] = useState(false)
+
+  // State, because the text on screen is rendered from it.
+  const [template, setTemplate] = useState(initialTemplate)
 
   // Refs, not state, for everything the animation loop touches: a re-render
   // must never be able to drop the queue or replay an alert (DESIGN.md 8.2).
   const queueRef = useRef(new AlertQueue())
   const playingRef = useRef(false)
   const unackedRef = useRef<string[]>([])
+
+  /**
+   * A ref rather than state, and that is the whole design of the change: as
+   * state it would be a dependency of the playback effect, so a settings save
+   * arriving mid-alert would tear down and rebuild the timers of the alert
+   * currently on screen — restarting its clock, and leaving an already-exiting
+   * alert stuck in its leaving state. Read at timer-set time instead, a new
+   * duration takes effect from the NEXT alert, which is also the behaviour a
+   * streamer would expect from saving a setting mid-stream.
+   */
+  const durationRef = useRef(initialDurationMs)
 
   useEffect(() => {
     setDebug(new URLSearchParams(window.location.search).get('debug') === '1')
@@ -127,6 +152,8 @@ export function OverlayClient({ token, suspended, wsUrl, template, durationMs }:
   useEffect(() => {
     if (!currentId) return
 
+    // Snapshotted once, on purpose — see durationRef.
+    const durationMs = durationRef.current
     const leaveAt = Math.max(0, durationMs - ALERT_OUT_MS)
     const toLeaving = setTimeout(
       () => setCurrent((c) => (c ? { ...c, leaving: true } : c)),
@@ -150,7 +177,7 @@ export function OverlayClient({ token, suspended, wsUrl, template, durationMs }:
     }
     // `current` also changes when `leaving` flips, which must NOT restart these
     // timers — hence the id rather than the object.
-  }, [currentId, durationMs, flushAcks, playNext])
+  }, [currentId, flushAcks, playNext])
 
   // -------------------------------------------------------------- connection
 
@@ -220,11 +247,18 @@ export function OverlayClient({ token, suspended, wsUrl, template, durationMs }:
             }, CLIENT_PING_INTERVAL_MS)
           } else if (message.type === 'donation.alert') {
             if (queueRef.current.push(message.data)) playNext()
+          } else if (message.type === 'settings.updated') {
+            // Applied without touching the queue or the alert on screen. The
+            // browser source is not reloaded — the reason this message exists
+            // at all is that a streamer editing their template mid-stream
+            // should not have to go into OBS and refresh it (DESIGN.md 9).
+            setTemplate(message.data.template)
+            durationRef.current = message.data.durationMs
           } else if (message.type === 'pong') {
             if (pongTimer) clearTimeout(pongTimer)
           }
-          // 'error' carries the same information as the close code that follows
-          // it, and 'settings.updated' is not wired yet.
+          // 'error' carries the same information as the close code that
+          // follows it, so it needs no branch of its own.
         }
 
         ws.onclose = (event) => {

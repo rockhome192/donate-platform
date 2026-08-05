@@ -3,6 +3,7 @@ import { ACK_MAX_IDS } from '../realtime.js'
 import {
   RESERVED_SLUGS,
   ackAlertsSchema,
+  alertSettingSchema,
   createDonationSchema,
   isReservedSlug,
   streamerSlugSchema,
@@ -102,5 +103,43 @@ describe('ackAlertsSchema', () => {
   it('accepts exactly the cap', () => {
     const ids = Array.from({ length: ACK_MAX_IDS }, (_, i) => `d${i}`)
     expect(ackAlertsSchema.safeParse({ donationIds: ids }).success).toBe(true)
+  })
+})
+
+/**
+ * PATCH /api/me/alert-setting parses with `.partial()`, and the two ways of
+ * "not setting a value" mean opposite things there.
+ */
+describe('alertSettingSchema, partial', () => {
+  const partial = alertSettingSchema.partial()
+
+  it('lets a form send one field without wiping the rest', () => {
+    const parsed = partial.safeParse({ template: '{name} ส่ง {amount}' })
+    expect(parsed.success).toBe(true)
+    // Absent keys must stay ABSENT rather than arriving as undefined values:
+    // the route spreads this straight into a Prisma update, where an explicit
+    // `undefined` is ignored but a `null` would clear the column.
+    expect(Object.keys(parsed.data!)).toEqual(['template'])
+  })
+
+  /**
+   * The distinction the verb PATCH exists for: leaving the sound alone and
+   * removing the sound are different requests.
+   */
+  it('separates "leave it" from "clear it" on the nullable columns', () => {
+    expect(partial.safeParse({}).data).toEqual({})
+    expect(partial.safeParse({ soundUrl: null }).data).toEqual({ soundUrl: null })
+  })
+
+  it.each([
+    ['a duration below the floor', { durationMs: 1_999 }],
+    ['a duration above the ceiling', { durationMs: 20_001 }],
+    ['a duration that is not an integer', { durationMs: 6_000.5 }],
+    ['an empty template', { template: '   ' }],
+    ['a template past 120 chars', { template: 'x'.repeat(121) }],
+    ['a negative alert threshold', { minAlertAmount: -1 }],
+    ['a sound that is not a URL', { soundUrl: 'not-a-url' }],
+  ])('still rejects %s', (_label, body) => {
+    expect(partial.safeParse(body).success).toBe(false)
   })
 })

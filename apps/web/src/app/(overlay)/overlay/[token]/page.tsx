@@ -58,8 +58,10 @@ export default async function OverlayPage({ params }: Params) {
       token={token}
       suspended={streamer.isSuspended}
       wsUrl={env.realtimeWsUrl}
-      template={streamer.alertSetting?.template ?? '{name} โดเนท {amount} บาท'}
-      durationMs={streamer.alertSetting?.durationMs ?? 6000}
+      // Fallbacks for a streamer with no AlertSetting row yet. They mirror the
+      // Prisma defaults; the settings page creates the row on first save.
+      initialTemplate={streamer.alertSetting?.template ?? '{name} โดเนท {amount} บาท'}
+      initialDurationMs={streamer.alertSetting?.durationMs ?? 6000}
     />
   )
 }
