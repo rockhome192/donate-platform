@@ -153,6 +153,36 @@ model WebhookEvent {
   @@index([processedAt, attempts])
 }
 
+enum MockChargeStatus {
+  PENDING
+  SUCCESSFUL
+  FAILED
+}
+
+/// MockProvider's charge ledger — DESIGN.md 4.3, 7.2.
+///
+/// **This is not application data.** It stands in for the state a real payment
+/// provider holds on its own servers: "what would Omise say if we asked about
+/// this charge". Donation remains the app's source of truth; this is the
+/// provider's.
+///
+/// It lives in Postgres rather than in a `Map` because the demo runs on Vercel,
+/// where three consecutive steps of one button press can land on three
+/// different instances: createCharge on A, markPaid on B (returns false ->
+/// spurious 409), and the synthetic webhook's retrieveCharge on C (throws
+/// "charge not found"). In-memory, the interview demo fails intermittently and
+/// only in production.
+model MockCharge {
+  /// The provider's own id. PK, so a duplicate create collides instead of overwriting.
+  providerRef String           @id
+  /// satang
+  amount      Int
+  status      MockChargeStatus @default(PENDING)
+  paidAt      DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime         @default(now())
+}
+
 /// Simulated only. No real funds ever move — this project is sandbox-only.
 model Payout {
   id         String   @id @default(cuid())

@@ -92,12 +92,10 @@ export async function POST(req: Request) {
   }
 
   // The provider's own ledger, not ours. Returns false on a double click, which
-  // is the point: the second press must not produce a second payment.
-  if (!provider.markPaid(donation.providerRef)) {
-    return Response.json(
-      { error: 'charge นี้ถูกจ่ายหรือหมดอายุไปแล้ว (หรือเซิร์ฟเวอร์รีสตาร์ตหลังสร้าง QR)' },
-      { status: 409 },
-    )
+  // is the point: the second press must not produce a second payment. It is one
+  // conditional UPDATE, so two simultaneous presses cannot both win.
+  if (!(await provider.markPaid(donation.providerRef))) {
+    return Response.json({ error: 'charge นี้ถูกจ่ายไปแล้ว' }, { status: 409 })
   }
 
   // Shaped like an Omise event, because the receiver reads it as one.

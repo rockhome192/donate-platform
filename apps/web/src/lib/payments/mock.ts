@@ -1,6 +1,9 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import type { MockChargeStatus } from '@prisma/client'
 import { formatBaht } from '@dp/shared'
+import { db } from '@/lib/db'
 import type {
+  ChargeStatus,
   CreateChargeInput,
   CreateChargeResult,
   PaymentProvider,
@@ -20,19 +23,17 @@ import type {
  */
 
 /**
- * Charge ledger. Process-local on purpose: this is a fake provider, the rows
- * that matter live in Postgres, and a restart losing a fake charge costs
- * nothing. It is NOT a cache of Donation — Donation is the source of truth for
- * the app, this is the source of truth for "what would Omise say if we asked".
+ * The ledger's own vocabulary is the PROVIDER's, not this app's.
+ *
+ * The column is a Prisma enum (uppercase, like every other enum in the schema)
+ * while the port speaks Omise's lowercase words, so the two meet here in one
+ * place rather than leaking either spelling across the seam.
  */
-type MockCharge = {
-  amount: number
-  status: 'pending' | 'successful' | 'failed'
-  paidAt: Date | null
-  expiresAt: Date
+const TO_CHARGE_STATUS: Record<MockChargeStatus, ChargeStatus> = {
+  PENDING: 'pending',
+  SUCCESSFUL: 'successful',
+  FAILED: 'failed',
 }
-
-const charges = new Map<string, MockCharge>()
 
 export class MockProvider implements PaymentProvider {
   readonly name = 'mock' as const
@@ -40,11 +41,13 @@ export class MockProvider implements PaymentProvider {
   async createCharge(input: CreateChargeInput): Promise<CreateChargeResult> {
     const providerRef = `mock_chrg_${randomBytes(9).toString('hex')}`
 
-    charges.set(providerRef, {
-      amount: input.amount,
-      status: 'pending',
-      paidAt: null,
-      expiresAt: input.expiresAt,
+    await db.mockCharge.create({
+      data: {
+        providerRef,
+        amount: input.amount,
+        status: 'PENDING',
+        expiresAt: input.expiresAt,
+      },
     })
 
     return {
@@ -55,13 +58,20 @@ export class MockProvider implements PaymentProvider {
   }
 
   async retrieveCharge(providerRef: string): Promise<RetrieveChargeResult> {
-    const charge = charges.get(providerRef)
+    const charge = await db.mockCharge.findUnique({
+      where: { providerRef },
+      select: { amount: true, status: true, paidAt: true },
+    })
 
     // Unknown ref: a real provider 404s here and the caller must not read that
     // as "unpaid and fine". Failing loud beats inventing a pending charge.
     if (!charge) throw new Error(`mock charge not found: ${providerRef}`)
 
-    return { status: charge.status, amount: charge.amount, paidAt: charge.paidAt }
+    return {
+      status: TO_CHARGE_STATUS[charge.status],
+      amount: charge.amount,
+      paidAt: charge.paidAt,
+    }
   }
 
   /**
@@ -98,14 +108,20 @@ export class MockProvider implements PaymentProvider {
    * Flips a mock charge to successful. Called only by the demo endpoint, which
    * 404s unless DEMO_MODE=true — see DESIGN.md 4.3. Returns false if the ref is
    * unknown or already settled, so a double click cannot produce two payments.
+   *
+   * One conditional UPDATE, not read-then-write. The old version checked the
+   * status and then assigned, which is a race that a single-threaded Map made
+   * invisible; against a database two simultaneous clicks would both read
+   * PENDING and both return true, and the pipeline would process two payments
+   * for one charge. `status: 'PENDING'` in the WHERE moves the check into the
+   * same statement as the write, so exactly one of them can match a row.
    */
-  markPaid(providerRef: string): boolean {
-    const charge = charges.get(providerRef)
-    if (!charge || charge.status !== 'pending') return false
-
-    charge.status = 'successful'
-    charge.paidAt = new Date()
-    return true
+  async markPaid(providerRef: string): Promise<boolean> {
+    const { count } = await db.mockCharge.updateMany({
+      where: { providerRef, status: 'PENDING' },
+      data: { status: 'SUCCESSFUL', paidAt: new Date() },
+    })
+    return count === 1
   }
 }
 
@@ -137,9 +153,4 @@ function placeholderQr(amountSatang: number): string {
 </svg>`
 
   return `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`
-}
-
-/** Test seam. Nothing in the app clears the ledger. */
-export function __resetMockCharges(): void {
-  charges.clear()
 }

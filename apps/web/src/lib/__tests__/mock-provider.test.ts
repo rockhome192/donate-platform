@@ -1,5 +1,57 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { MockProvider, signMockWebhook, __resetMockCharges } from '../payments/mock'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * A stand-in for the `MockCharge` table.
+ *
+ * It can show that the provider asks the right questions — a conditional
+ * update rather than a read-then-write — but it cannot prove the property that
+ * moved this ledger into Postgres in the first place: two simultaneous presses
+ * landing on two instances. That one is the database's guarantee and is
+ * verified against Neon end to end, not here.
+ */
+const store = vi.hoisted(() => {
+  type Row = {
+    providerRef: string
+    amount: number
+    status: 'PENDING' | 'SUCCESSFUL' | 'FAILED'
+    paidAt: Date | null
+    expiresAt: Date
+  }
+  return new Map<string, Row>()
+})
+
+vi.mock('@/lib/db', () => ({
+  db: {
+    mockCharge: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const ref = data.providerRef as string
+        // The real column is a primary key; a silent overwrite here would hide
+        // a duplicate-ref bug that Postgres would reject outright.
+        if (store.has(ref)) throw new Error(`duplicate providerRef ${ref}`)
+        const row = { paidAt: null, ...data } as never
+        store.set(ref, row)
+        return row
+      },
+      findUnique: async ({ where }: { where: { providerRef: string } }) =>
+        store.get(where.providerRef) ?? null,
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: { providerRef: string; status?: string }
+        data: Record<string, unknown>
+      }) => {
+        const row = store.get(where.providerRef)
+        if (!row) return { count: 0 }
+        if (where.status !== undefined && row.status !== where.status) return { count: 0 }
+        Object.assign(row, data)
+        return { count: 1 }
+      },
+    },
+  },
+}))
+
+const { MockProvider, signMockWebhook } = await import('../payments/mock')
 
 const SECRET = 'test-mock-secret'
 
@@ -9,7 +61,7 @@ function signedHeaders(rawBody: string, secret = SECRET): Headers {
 
 describe('MockProvider', () => {
   beforeEach(() => {
-    __resetMockCharges()
+    store.clear()
     process.env.MOCK_WEBHOOK_SECRET = SECRET
   })
 
@@ -63,7 +115,7 @@ describe('MockProvider', () => {
       currency: 'THB',
       expiresAt: new Date(),
     })
-    provider.markPaid(charge.providerRef)
+    await provider.markPaid(charge.providerRef)
 
     // DESIGN.md 7.1: the processor reads the amount back from the provider and
     // ignores whatever a webhook body claims.
@@ -79,12 +131,23 @@ describe('MockProvider', () => {
       expiresAt: new Date(),
     })
 
-    expect(provider.markPaid(charge.providerRef)).toBe(true)
-    expect(provider.markPaid(charge.providerRef)).toBe(false)
+    // The second call is refused by the WHERE clause, not by a prior read —
+    // `status: PENDING` no longer matches once the first one settled it.
+    await expect(provider.markPaid(charge.providerRef)).resolves.toBe(true)
+    await expect(provider.markPaid(charge.providerRef)).resolves.toBe(false)
 
     const settled = await provider.retrieveCharge(charge.providerRef)
     expect(settled.status).toBe('successful')
     expect(settled.paidAt).toBeInstanceOf(Date)
+  })
+
+  /**
+   * The demo route turns this into a 409. Before the ledger moved to Postgres
+   * the same false meant "the server restarted since the QR was created", which
+   * on Vercel happened to real visitors between two requests of one click.
+   */
+  it('refuses to settle a ref it never issued', async () => {
+    await expect(new MockProvider().markPaid('mock_chrg_nope')).resolves.toBe(false)
   })
 
   describe('verifyWebhookSignature', () => {
