@@ -1,3 +1,4 @@
+import type { PrismaClient } from '@prisma/client'
 import type { DayTotal } from '@/app/(site)/dashboard/DailyTotals'
 
 /**
@@ -19,6 +20,56 @@ import type { DayTotal } from '@/app/(site)/dashboard/DailyTotals'
 const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000
 
 export const DASHBOARD_DAYS = 7
+
+/** One row of the daily-totals query. `total` is satang. */
+export type DailyTotalRow = { day: Date; total: bigint }
+
+/**
+ * Just enough of the client to run one raw query.
+ *
+ * Taking it as an argument rather than importing `db` here keeps this module
+ * free of a Prisma instance — the unit tests next door import it and must not
+ * open a connection — and lets the integration test pass a TRANSACTION client
+ * instead, which is how the SQL below gets exercised against a real Postgres
+ * without leaving rows behind in the demo database.
+ */
+type RawQueryClient = Pick<PrismaClient, '$queryRaw'>
+
+/**
+ * Daily totals for the last `windowStart`-onwards, bucketed by BANGKOK
+ * calendar day.
+ *
+ * Raw SQL because Prisma's groupBy cannot group on a derived expression, and
+ * doing it in JS would mean pulling every paid donation of the week across the
+ * wire to add them up.
+ *
+ * **The double AT TIME ZONE is not a typo and is the whole correctness of this
+ * query.** The column is `timestamp(3)` WITHOUT a zone holding UTC, so the
+ * first conversion tells Postgres what the naive value means and the second
+ * moves it to Bangkok. With only the second, every donation between 00:00 and
+ * 07:00 local lands on the previous day.
+ *
+ * That failure is invisible to the unit tests — they only cover the JS day
+ * maths — so it is pinned by `__integration__/daily-totals.int.test.ts`
+ * against a real Postgres. If you are about to simplify this expression, run
+ * `pnpm --filter @dp/web test:int` first.
+ */
+export function fetchDailyTotals(
+  client: RawQueryClient,
+  streamerId: string,
+  windowStart: Date,
+): Promise<DailyTotalRow[]> {
+  return client.$queryRaw<DailyTotalRow[]>`
+    SELECT (("paidAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date AS day,
+           SUM(amount)::bigint AS total
+      FROM "Donation"
+     WHERE "streamerId" = ${streamerId}
+       AND status = 'PAID'
+       AND "paidAt" >= ${windowStart}
+     GROUP BY 1
+     ORDER BY 1
+  `
+}
 
 /** Midnight in Bangkok, as the UTC instant it corresponds to. */
 export function bangkokDayStart(now: Date): Date {

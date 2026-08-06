@@ -5,7 +5,12 @@ import { getServerSession } from 'next-auth'
 import { formatBaht } from '@dp/shared'
 import { Panel, PanelHeader, StatBlock, TechLabel, buttonClass } from '@/components/ui'
 import { authOptions } from '@/lib/auth'
-import { DASHBOARD_DAYS, bangkokDayStart, buildDaySeries } from '@/lib/dashboard-stats'
+import {
+  DASHBOARD_DAYS,
+  bangkokDayStart,
+  buildDaySeries,
+  fetchDailyTotals,
+} from '@/lib/dashboard-stats'
 import { db } from '@/lib/db'
 import { DailyTotals } from './DailyTotals'
 
@@ -110,29 +115,9 @@ export default async function DashboardPage({ searchParams }: Props) {
       by: ['donorName'],
       where: { streamerId, status: 'PAID' },
     }),
-    /*
-     * Daily totals, bucketed by BANGKOK calendar day.
-     *
-     * Raw SQL because Prisma's groupBy cannot group on a derived expression,
-     * and doing it in JS would mean pulling every paid donation of the week
-     * across the wire to add them up.
-     *
-     * The double AT TIME ZONE is not a typo and is the whole correctness of
-     * this query: the column is `timestamp(3)` WITHOUT a zone holding UTC, so
-     * the first conversion tells Postgres what the naive value means, and the
-     * second moves it to Bangkok. With only the second, every donation between
-     * 00:00 and 07:00 local lands on the previous day.
-     */
-    db.$queryRaw<{ day: Date; total: bigint }[]>`
-      SELECT (("paidAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date AS day,
-             SUM(amount)::bigint AS total
-        FROM "Donation"
-       WHERE "streamerId" = ${streamerId}
-         AND status = 'PAID'
-         AND "paidAt" >= ${windowStart}
-       GROUP BY 1
-       ORDER BY 1
-    `,
+    // Bucketed by Bangkok calendar day, in raw SQL — see fetchDailyTotals for
+    // why, and for the one expression in it that must not be simplified.
+    fetchDailyTotals(db, streamerId, windowStart),
   ])
 
   if (!streamer) redirect('/login')

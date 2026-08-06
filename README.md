@@ -81,10 +81,14 @@ pnpm dev:rt                 # apps/realtime → http://localhost:8080/healthz
 ### คำสั่งอื่น
 
 ```bash
-pnpm test        # ทุก workspace
+pnpm test        # ทุก workspace — unit ล้วน ไม่ต้องมี DB
 pnpm typecheck
 pnpm build
 pnpm db:studio
+
+# Integration — ต้องมี DIRECT_URL ใน apps/web/.env (ไม่มีก็ skip ตัวเอง)
+# รันในทรานแซกชันที่ roll back ทุกครั้ง ไม่เขียนอะไรลง DB จริง
+pnpm --filter @dp/web test:int
 ```
 
 ---
