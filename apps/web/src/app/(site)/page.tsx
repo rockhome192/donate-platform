@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { env } from '@/lib/env'
 import { OverlayStage } from '@/components/OverlayStage'
-import { Panel, PanelHeader, TechLabel, buttonClass } from '@/components/ui'
+import { Panel, PanelHeader, TechLabel, Wordmark, buttonClass } from '@/components/ui'
 
 /**
  * Landing, as a console.
@@ -70,7 +70,7 @@ export default function HomePage() {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-5 py-8 sm:px-6">
       <header className="flex flex-wrap items-center justify-between gap-4">
-        <span className="font-display text-h3 font-bold tracking-tight">DONATR</span>
+        <Wordmark />
         <nav className="flex items-center gap-2">
           <Link href="/demo" className={buttonClass('secondary', 'sm')}>
             ดูหน้าโดเนท

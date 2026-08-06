@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { Route } from 'next'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { signIn } from 'next-auth/react'
-import { ErrorNote, Panel, PanelHeader, buttonClass } from '@/components/ui'
+import { ErrorNote, buttonClass } from '@/components/ui'
 
 const DEMO_EMAIL = 'demo@donate-platform.local'
 const DEMO_PASSWORD = 'demo1234'
@@ -67,9 +67,9 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={submit} className="mt-7 space-y-4">
+    <form onSubmit={submit} className="mt-6 space-y-4">
       <div>
-        <label htmlFor="email" className="mb-1.5 block text-label text-muted">
+        <label htmlFor="email" className="mb-1.5 block text-label font-semibold text-muted">
           อีเมล
         </label>
         <input
@@ -84,7 +84,7 @@ export function LoginForm() {
       </div>
 
       <div>
-        <label htmlFor="password" className="mb-1.5 block text-label text-muted">
+        <label htmlFor="password" className="mb-1.5 block text-label font-semibold text-muted">
           รหัสผ่าน
         </label>
         <input
@@ -104,17 +104,48 @@ export function LoginForm() {
         {submitting ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
       </button>
 
-      <Panel>
-        <PanelHeader label="demo account" />
-        <div className="p-4 text-center">
-          <p className="font-mono text-meta break-all text-muted">
-            {DEMO_EMAIL} / {DEMO_PASSWORD}
-          </p>
-          <button type="button" onClick={fillDemo} className={buttonClass('secondary', 'sm', 'mt-3.5')}>
-            กรอกให้อัตโนมัติ
-          </button>
-        </div>
-      </Panel>
+      {/* The design's "หรือ" rule. It divides two ways of getting in, which is
+          what a rule is for — not spacing. */}
+      <div className="flex items-center gap-3 pt-1" aria-hidden>
+        <span className="h-px flex-1 bg-line" />
+        <span className="text-meta text-faint">หรือ</span>
+        <span className="h-px flex-1 bg-line" />
+      </div>
+
+      {/*
+        Demo credentials, inline instead of in a panel of their own. They were a
+        full Panel with its own header before, which made the way IN to a demo
+        look heavier than the login it sits under.
+
+        Not amber, though the design file colours these like its money token:
+        amber means money in this system and a password is not money. Mono ink
+        instead — these are literal credentials to be typed, which is the job
+        the mono role is reserved for.
+      */}
+      <div className="rounded-control border border-line bg-surface-2 px-4 py-3">
+        <p className="text-label text-muted">บัญชีเดโม่</p>
+        {/* One per line. On a single line `break-all` split the password across
+            the wrap — "dem / o1234" is not something anyone can retype. */}
+        <dl className="mt-1 font-mono text-meta text-ink">
+          <div className="flex gap-2">
+            <dt className="shrink-0 text-faint">อีเมล</dt>
+            <dd className="min-w-0 break-all">{DEMO_EMAIL}</dd>
+          </div>
+          <div className="flex gap-2">
+            <dt className="shrink-0 text-faint">รหัส</dt>
+            <dd>{DEMO_PASSWORD}</dd>
+          </div>
+        </dl>
+        {/* A button, not a coloured span: it performs an action, and the design
+            file's version was neither focusable nor announced. */}
+        <button
+          type="button"
+          onClick={fillDemo}
+          className="mt-1.5 text-label font-semibold text-accent-text underline underline-offset-4 hover:text-ink"
+        >
+          กรอกให้อัตโนมัติ
+        </button>
+      </div>
     </form>
   )
 }

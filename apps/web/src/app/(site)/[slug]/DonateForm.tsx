@@ -132,7 +132,7 @@ function AmountForm({
   }
 
   return (
-    <form onSubmit={submit} className="mt-7 animate-fade-up space-y-4" noValidate>
+    <form onSubmit={submit} className="mt-5 animate-fade-up space-y-4" noValidate>
       <Panel>
         <PanelHeader label="จำนวนเงิน" />
         <div className="p-4">
@@ -341,7 +341,7 @@ function QrPanel({
 
   if (status === 'PAID') {
     return (
-      <section className="mt-7 animate-fade-up space-y-4">
+      <section className="mt-5 animate-fade-up space-y-4">
         <Panel className="border-money/45 bg-money/10">
           <PanelHeader
             label="paid"
@@ -380,7 +380,7 @@ function QrPanel({
 
   if (failed) {
     return (
-      <section className="mt-7 animate-fade-up space-y-4">
+      <section className="mt-5 animate-fade-up space-y-4">
         <Panel>
           <PanelHeader label={status === 'FAILED' ? 'failed' : 'expired'} />
           <div className="px-5 py-7 text-center">
@@ -402,7 +402,7 @@ function QrPanel({
   }
 
   return (
-    <section className="mt-7 animate-fade-up space-y-4">
+    <section className="mt-5 animate-fade-up space-y-4">
       <Panel>
         <PanelHeader
           label="scan to pay"

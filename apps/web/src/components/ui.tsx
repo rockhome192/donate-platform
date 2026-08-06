@@ -60,6 +60,68 @@ export function buttonClass(
     .join(' ')
 }
 
+/**
+ * The wordmark, with the mark the v2 design gives it.
+ *
+ * Three screens spelled DONATR three different ways before this — plain display
+ * type on the landing, a bare link on login, a mono TechLabel in the donate
+ * footer — so the one element that should be identical everywhere was the only
+ * one that never was.
+ *
+ * The mark is the design file's own: a signal arc rising off a dot. It says
+ * broadcast, which is the product, and it survives at 26px where a glyph would
+ * not. The arc uses --color-accent-text rather than the fill red: it is a 2.4px
+ * stroke, and the fill red reaches only 4.16:1 on the canvas where the bright
+ * one gets 5.53:1 — comfortably clear of the 3:1 a meaningful graphic needs.
+ */
+export function Wordmark({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
+  const box = { sm: 'size-6.5', md: 'size-8', lg: 'size-9.5' }[size]
+  const glyph = { sm: 15, md: 18, lg: 21 }[size]
+  const text = { sm: 'text-label', md: 'text-h3', lg: 'text-h2' }[size]
+
+  return (
+    <span className="inline-flex items-center gap-2.5">
+      <span
+        className={`grid ${box} shrink-0 place-items-center rounded-chip border border-line-strong bg-surface-2`}
+      >
+        <svg width={glyph} height={glyph} viewBox="0 0 24 24" fill="none" aria-hidden>
+          <circle cx="7" cy="17" r="2.6" fill="currentColor" />
+          <path
+            d="M7 10.6a6.4 6.4 0 0 1 6.4 6.4"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+          />
+          <path
+            d="M7 5a12 12 0 0 1 12 12"
+            className="stroke-accent-text"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+          />
+        </svg>
+      </span>
+      <span className={`font-display ${text} font-bold tracking-tight`}>DONATR</span>
+    </span>
+  )
+}
+
+/**
+ * Dot grid plus a red bloom at the top edge, for the public screens. See the
+ * `dot-grid` note in globals.css for why the console screens do not get this.
+ *
+ * Fixed, not absolute: the donate page grows past the viewport once the QR
+ * arrives, and an absolutely-positioned bloom would scroll away and take the
+ * page's whole top edge with it.
+ */
+export function AmbientBackdrop() {
+  return (
+    <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
+      <div className="dot-grid absolute inset-0" />
+      <div className="absolute inset-x-0 top-0 h-[46vh] bg-[radial-gradient(60%_100%_at_50%_0%,rgba(255,59,78,0.13),transparent_70%)]" />
+    </div>
+  )
+}
+
 export function Panel({
   children,
   className = '',

@@ -253,6 +253,24 @@ select:focus-visible {
     -11px 0;
 }
 
+/**
+ * The v2 design's ambient treatment for the two PUBLIC screens — login and the
+ * donate page. Both are a single card on an otherwise empty viewport, and on
+ * plain canvas that card floats with nothing to sit against.
+ *
+ * Kept off the console screens on purpose. Those are dense with real panels and
+ * need no help filling the frame; texture there would be decoration, which this
+ * system does not spend on.
+ *
+ * 4% white at 24px is under the threshold where it can interfere with text —
+ * measured, not eyeballed: --color-faint over a dot reads 4.71:1 against the
+ * 4.77:1 it gets on flat canvas.
+ */
+@utility dot-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
 @utility animate-livedot {
   animation: livedot 1.6s ease-in-out infinite;
 }
