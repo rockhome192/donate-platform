@@ -9,6 +9,7 @@ import {
   type AlertPayload,
   type ServerMessage,
 } from '@dp/shared'
+import { AlertCard } from '@/components/AlertCard'
 import { AlertQueue, renderAlertTemplate } from '@/lib/overlay/queue'
 import { STOP_MESSAGE, afterClose, afterTicket, type StopReason } from '@/lib/overlay/reconnect'
 
@@ -334,25 +335,14 @@ export function OverlayClient({
   return (
     <div className="relative h-dvh w-full overflow-hidden">
       {current && (
-        <div
-          className={`absolute top-[6%] left-[4%] flex w-[min(30rem,80%)] items-center gap-3.5 rounded-panel bg-gradient-to-br from-money-soft to-money px-5 py-4 text-money-ink shadow-xl shadow-black/40 ${
+        <AlertCard
+          size="overlay"
+          headline={renderAlertTemplate(template, current.alert)}
+          message={current.alert.message || undefined}
+          className={`absolute top-[6%] left-[4%] w-[min(34rem,84%)] ${
             current.leaving ? 'animate-alert-out' : 'animate-alert-in'
           }`}
-        >
-          <span className="grid size-12 shrink-0 place-items-center rounded-control bg-black/10 text-h2">
-            🎉
-          </span>
-          <div className="min-w-0">
-            <p className="truncate font-display text-h3 font-bold">
-              {renderAlertTemplate(template, current.alert)}
-            </p>
-            {current.alert.message && (
-              // Rendered as a text node. Never dangerouslySetInnerHTML: this is
-              // attacker-controlled text running on the streamer's own machine.
-              <p className="truncate text-label opacity-85">{current.alert.message}</p>
-            )}
-          </div>
-        </div>
+        />
       )}
 
       {/*

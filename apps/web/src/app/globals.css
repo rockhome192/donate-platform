@@ -271,6 +271,21 @@ select:focus-visible {
   background-size: 24px 24px;
 }
 
+/* The landing ticker. Translating exactly -50% across a list rendered twice is
+   what makes the loop seamless; any other distance visibly jumps. */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@utility animate-marquee {
+  animation: marquee 42s linear infinite;
+}
+
 @utility animate-livedot {
   animation: livedot 1.6s ease-in-out infinite;
 }

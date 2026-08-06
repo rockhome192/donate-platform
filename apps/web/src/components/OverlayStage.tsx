@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { AlertCard } from '@/components/AlertCard'
 import { LiveDot, PanelHeader, StatusTrack } from '@/components/ui'
 
 /**
@@ -70,6 +71,14 @@ const SEQUENCE: ReadonlyArray<[Stage, number]> = [
   ['leaving', 5300],
   ['gone', 5700],
 ]
+
+/** The four framing brackets, as border edges rather than four bespoke divs. */
+const CORNERS = [
+  { key: 'tl', className: 'top-3 left-3 rounded-tl-[4px] border-t-2 border-l-2' },
+  { key: 'tr', className: 'top-3 right-3 rounded-tr-[4px] border-t-2 border-r-2' },
+  { key: 'bl', className: 'bottom-3 left-3 rounded-bl-[4px] border-b-2 border-l-2' },
+  { key: 'br', className: 'bottom-3 right-3 rounded-br-[4px] border-r-2 border-b-2' },
+] as const
 
 /** Quiet stage between two donations. Long enough to read as a gap, not a stall. */
 const GAP_MS = 1_800
@@ -141,6 +150,9 @@ export function OverlayStage() {
 
   const showAlert = stage === 'static' || stage === 'alerted' || stage === 'leaving'
   const current = SAMPLES[sample]!
+  // Whoever is up after this one — the queued row below is showing the real
+  // next item in the cycle, not a fixed placeholder.
+  const next = SAMPLES[(sample + 1) % SAMPLES.length]!
 
   return (
     <>
@@ -169,22 +181,54 @@ export function OverlayStage() {
         ref={stageRef}
         className="obs-checker relative aspect-video max-h-80 w-full overflow-hidden border-b border-line"
       >
+        {/* Corner brackets, from the v2 design. Accent rather than the design's
+            amber: amber means money here, and a frame is not money. 2px accent
+            on the checkerboard measures 3.96:1, clear of the 3:1 a meaningful
+            graphic needs. */}
+        {CORNERS.map((corner) => (
+          <span
+            key={corner.key}
+            aria-hidden
+            className={`absolute size-5 border-accent ${corner.className}`}
+          />
+        ))}
+
         {showAlert && (
-          <div
-            className={`absolute top-[8%] left-[4%] flex w-[min(24rem,72%)] items-center gap-3 rounded-panel bg-gradient-to-br from-money-soft to-money px-4 py-3 text-money-ink shadow-xl shadow-black/50 ${
-              stage === 'alerted' ? 'animate-alert-in' : ''
-            } ${stage === 'leaving' ? 'animate-alert-out' : ''}`}
-          >
-            <span className="grid size-10 shrink-0 place-items-center rounded-control bg-black/10 text-h3">
-              🎉
-            </span>
-            <div className="min-w-0">
-              <p className="truncate font-display text-label font-bold sm:text-h3">
+          <AlertCard
+            headline={
+              <>
                 {current.name} โดเนท{' '}
                 <span className="font-numeric tabular-nums">{current.amount}</span>
-              </p>
-              <p className="truncate text-meta opacity-80 sm:text-label">{current.message}</p>
-            </div>
+              </>
+            }
+            message={current.message}
+            className={`absolute top-[8%] left-[4%] w-[min(26rem,76%)] ${
+              stage === 'alerted' ? 'animate-alert-in' : ''
+            } ${stage === 'leaving' ? 'animate-alert-out' : ''}`}
+          />
+        )}
+
+        {/*
+          The design puts a second, dimmer row under the alert reading
+          "กำลังจะเด้ง". That one is not decoration and it is not invented — the
+          overlay really does hold a queue and play one alert at a time
+          (AlertQueue, DESIGN.md 8.2), so this is the only place on the page
+          that shows the product's actual behaviour under two donations at once.
+          Shown while an alert is on screen, which is exactly when a queue would
+          have something in it.
+        */}
+        {showAlert && (
+          <div className="absolute top-[8%] left-[4%] mt-2 flex w-[min(26rem,76%)] translate-y-[5.25rem] items-center gap-3 rounded-control border border-line bg-surface/90 px-3.5 py-2.5">
+            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-chip bg-white/6 text-label">
+              ⭐
+            </span>
+            <p className="truncate text-meta text-muted">
+              {next.name} โดเนท{' '}
+              <span className="font-numeric font-semibold tabular-nums text-money">
+                {next.amount}
+              </span>{' '}
+              · กำลังจะเด้ง
+            </p>
           </div>
         )}
 
