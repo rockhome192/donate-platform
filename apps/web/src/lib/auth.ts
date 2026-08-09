@@ -21,19 +21,21 @@ export const authOptions: NextAuthOptions = {
 
         const user = await db.user.findUnique({
           where: { email: credentials.email.toLowerCase().trim() },
-          include: { streamer: { select: { id: true, slug: true } } },
+          include: { streamer: { select: { id: true } } },
         })
         if (!user?.passwordHash) return null
 
         const ok = await bcrypt.compare(credentials.password, user.passwordHash)
         if (!ok) return null
 
+        // No slug here on purpose — it is editable, and a JWT this app cannot
+        // revoke is the wrong place for anything the product can change. See
+        // types/next-auth.d.ts.
         return {
           id: user.id,
           email: user.email,
           role: user.role,
           streamerId: user.streamer?.id ?? null,
-          slug: user.streamer?.slug ?? null,
         }
       },
     }),
@@ -43,7 +45,6 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.role = user.role
         token.streamerId = user.streamerId
-        token.slug = user.slug
       }
       return token
     },
@@ -52,7 +53,6 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.sub ?? ''
         session.user.role = token.role
         session.user.streamerId = token.streamerId
-        session.user.slug = token.slug
       }
       return session
     },

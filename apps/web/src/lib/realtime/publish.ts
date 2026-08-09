@@ -50,6 +50,19 @@ function config(): { url: string; secret: string } | null {
   return { url: url.replace(/\/$/, ''), secret }
 }
 
+/**
+ * Whether this deployment has a realtime service at all.
+ *
+ * `publishToOverlay` and `disconnectOverlays` both answer `null` for two very
+ * different situations — "the service is configured and did not respond" and
+ * "there is no service on this deployment" — and a caller that reports the
+ * second as the first tells the operator their overlays are stranded when no
+ * overlay can exist. M2a is not deployed yet, so today that is EVERY call.
+ */
+export function isRealtimeConfigured(): boolean {
+  return config() !== null
+}
+
 export function signInternalRequest(
   rawBody: string,
   timestamp: string,

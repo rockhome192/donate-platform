@@ -24,15 +24,24 @@ type Props = {
   email: string
   /** Streamer slug, for the "open my donate page" link. Absent for an admin. */
   slug: string | null
+  /**
+   * Whether to show the admin destination. Cosmetic only — /dashboard/admin
+   * checks the role itself against the database. Hiding a link is not access
+   * control, it is tidiness.
+   */
+  isAdmin?: boolean
 }
 
 type Item = { href: Route; label: string; icon: string }
 
 const ITEMS: readonly Item[] = [
   { href: '/dashboard', label: 'แดชบอร์ด', icon: '▤' },
+  { href: '/dashboard/profile', label: 'โปรไฟล์', icon: '◍' },
   { href: '/dashboard/alerts', label: 'ตั้งค่า Alert', icon: '◈' },
   { href: '/dashboard/overlay', label: 'Overlay', icon: '◉' },
 ]
+
+const ADMIN_ITEM: Item = { href: '/dashboard/admin', label: 'Admin', icon: '⚑' }
 
 /**
  * `/dashboard` must match exactly or it stays highlighted on every child
@@ -42,8 +51,9 @@ function isActive(pathname: string, href: string): boolean {
   return href === '/dashboard' ? pathname === href : pathname.startsWith(href)
 }
 
-export function AppNav({ displayName, email, slug }: Props) {
+export function AppNav({ displayName, email, slug, isAdmin = false }: Props) {
   const pathname = usePathname()
+  const items = isAdmin ? [...ITEMS, ADMIN_ITEM] : ITEMS
 
   return (
     <>
@@ -64,7 +74,7 @@ export function AppNav({ displayName, email, slug }: Props) {
 
         <nav aria-label="เมนูหลัก" className="flex-1 px-3">
           <ul className="space-y-0.5">
-            {ITEMS.map((item) => {
+            {items.map((item) => {
               const active = isActive(pathname, item.href)
               return (
                 <li key={item.href}>
@@ -103,7 +113,7 @@ export function AppNav({ displayName, email, slug }: Props) {
         aria-label="เมนูหลัก"
         className="sticky top-9 z-40 -mx-5 flex gap-1.5 overflow-x-auto border-b border-line bg-canvas/95 px-5 py-2.5 backdrop-blur md:hidden"
       >
-        {ITEMS.map((item) => {
+        {items.map((item) => {
           const active = isActive(pathname, item.href)
           return (
             <Link

@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CloseCode, INTERNAL_SIGNATURE_PREFIX, internalSigningPayload } from '@dp/shared'
-import { disconnectOverlays, publishToOverlay } from '@/lib/realtime/publish'
+import { disconnectOverlays, isRealtimeConfigured, publishToOverlay } from '@/lib/realtime/publish'
 
 /**
  * The web -> realtime hop (DESIGN.md 8.3.1).
@@ -54,6 +54,43 @@ afterEach(() => {
   vi.unstubAllGlobals()
   delete process.env.REALTIME_HTTP_URL
   delete process.env.REALTIME_INTERNAL_SECRET
+})
+
+/**
+ * The distinction the admin screen's suspension message rests on.
+ *
+ * `disconnectOverlays` answers `null` for two situations that are not the same
+ * thing: the service is configured and did not respond, and there is no service
+ * on this deployment at all. Reporting the second as the first tells an operator
+ * that a suspended streamer's overlays are still on air when no overlay can
+ * exist — which is exactly the kind of false claim this project forbids, and it
+ * would have fired on EVERY suspension until M2a is deployed.
+ */
+describe('isRealtimeConfigured', () => {
+  it('is true only when both variables are set', () => {
+    expect(isRealtimeConfigured()).toBe(true)
+
+    delete process.env.REALTIME_HTTP_URL
+    expect(isRealtimeConfigured()).toBe(false)
+
+    process.env.REALTIME_HTTP_URL = URL_BASE
+    delete process.env.REALTIME_INTERNAL_SECRET
+    expect(isRealtimeConfigured()).toBe(false)
+  })
+
+  it('separates "no service here" from "service did not answer"', async () => {
+    // Configured but refusing: null, and the caller should warn.
+    mockFetch({ ok: false, status: 500 })
+    expect(isRealtimeConfigured()).toBe(true)
+    await expect(disconnectOverlays('str_1')).resolves.toBeNull()
+
+    // Not configured: also null, but the caller must NOT warn about stranded
+    // sockets — this is the only signal that tells the two apart.
+    delete process.env.REALTIME_HTTP_URL
+    delete process.env.REALTIME_INTERNAL_SECRET
+    expect(isRealtimeConfigured()).toBe(false)
+    await expect(disconnectOverlays('str_1')).resolves.toBeNull()
+  })
 })
 
 describe('publishToOverlay', () => {

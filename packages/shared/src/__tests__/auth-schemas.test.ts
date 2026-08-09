@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isHoneypotFilled, passwordSchema, registerSchema } from '../schemas'
+import { isHoneypotFilled, passwordSchema, profileSchema, registerSchema } from '../schemas'
 
 const VALID = {
   email: 'someone@example.com',
@@ -96,5 +96,51 @@ describe('isHoneypotFilled', () => {
     expect(isHoneypotFilled(undefined)).toBe(false)
     expect(isHoneypotFilled('website=spam')).toBe(false)
     expect(isHoneypotFilled([])).toBe(false)
+  })
+})
+
+describe('profileSchema', () => {
+  const PROFILE = {
+    displayName: 'มายด์',
+    slug: 'mind',
+    bio: 'สตรีมเกม',
+    avatarUrl: null,
+    minAmount: 2_000,
+    maxAmount: 500_000,
+  }
+
+  it('accepts a full profile', () => {
+    expect(profileSchema.safeParse(PROFILE).success).toBe(true)
+  })
+
+  it('lets bio and avatar be cleared with null', () => {
+    const parsed = profileSchema.parse({ ...PROFILE, bio: null, avatarUrl: null })
+    expect(parsed.bio).toBeNull()
+    expect(parsed.avatarUrl).toBeNull()
+  })
+
+  it('requires avatarUrl to be a URL when present', () => {
+    expect(profileSchema.safeParse({ ...PROFILE, avatarUrl: 'not a url' }).success).toBe(false)
+    expect(
+      profileSchema.safeParse({ ...PROFILE, avatarUrl: 'https://cdn.example.com/a.png' }).success,
+    ).toBe(true)
+  })
+
+  it('rejects amounts that are not whole satang', () => {
+    expect(profileSchema.safeParse({ ...PROFILE, minAmount: 1.5 }).success).toBe(false)
+  })
+
+  /**
+   * Deliberately NOT checked here: min <= max. A partial patch may carry only
+   * one of the two, and this schema cannot see the stored value of the other —
+   * the route compares them against the row. See app/api/me/profile/route.ts.
+   */
+  it('does not compare min against max', () => {
+    expect(profileSchema.safeParse({ ...PROFILE, minAmount: 900_000 }).success).toBe(true)
+  })
+
+  it('is partial-able, which is what the PATCH route relies on', () => {
+    expect(profileSchema.partial().safeParse({ displayName: 'ใหม่' }).success).toBe(true)
+    expect(profileSchema.partial().safeParse({}).success).toBe(true)
   })
 })

@@ -12,6 +12,16 @@ const db = new PrismaClient()
 const DEMO_EMAIL = 'demo@donate-platform.local'
 const DEMO_PASSWORD = 'demo1234'
 
+/**
+ * The operator account for /dashboard/admin.
+ *
+ * It has NO Streamer row on purpose — that pairing is what api-session.ts
+ * distinguishes, and having one real account without a streamer profile is the
+ * only way the 403 branch of `requireStreamer` is ever exercised outside a test.
+ */
+const ADMIN_EMAIL = 'admin@donate-platform.local'
+const ADMIN_PASSWORD = 'admin1234'
+
 async function main() {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10)
 
@@ -19,6 +29,12 @@ async function main() {
     where: { email: DEMO_EMAIL },
     update: { passwordHash },
     create: { email: DEMO_EMAIL, passwordHash, role: 'STREAMER' },
+  })
+
+  await db.user.upsert({
+    where: { email: ADMIN_EMAIL },
+    update: { passwordHash: await bcrypt.hash(ADMIN_PASSWORD, 10), role: 'ADMIN' },
+    create: { email: ADMIN_EMAIL, passwordHash: await bcrypt.hash(ADMIN_PASSWORD, 10), role: 'ADMIN' },
   })
 
   const streamer = await db.streamer.upsert({
@@ -71,6 +87,7 @@ async function main() {
 
   console.log('Seeded:')
   console.log(`  login    ${DEMO_EMAIL} / ${DEMO_PASSWORD}`)
+  console.log(`  admin    ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`)
   console.log(`  donate   /${streamer.slug}`)
   console.log(`  overlay  /overlay/${streamer.overlayToken}`)
 }

@@ -181,6 +181,48 @@ export function isHoneypotFilled(body: unknown): boolean {
   )
 }
 
+/**
+ * A per-donation bound, in satang, reported in baht.
+ *
+ * `toBaht` is not used here: this module is imported by client components and
+ * the message is a constant, so the division is done once at module load
+ * rather than per parse.
+ */
+function satangBound(label: string) {
+  const minBaht = (SYSTEM_MIN_SATANG / 100).toLocaleString('th-TH')
+  const maxBaht = (SYSTEM_MAX_SATANG / 100).toLocaleString('th-TH')
+  return z
+    .number()
+    .int(`${label}ต้องเป็นจำนวนเต็มสตางค์`)
+    .min(SYSTEM_MIN_SATANG, `${label}ต้องไม่ต่ำกว่า ${minBaht} บาท`)
+    .max(SYSTEM_MAX_SATANG, `${label}ต้องไม่เกิน ${maxBaht} บาท`)
+}
+
+/**
+ * PATCH /api/me/profile — the streamer's own public identity.
+ *
+ * Partial-able by the route (`.partial()`), so an absent key means "leave it
+ * alone". `bio` accepts null to clear it; the rest are required when present.
+ *
+ * minAmount/maxAmount are the streamer's own layer-2 bounds and are checked
+ * against each other in the route, not here — a partial patch may carry only
+ * one of the two, and this schema cannot see the stored value of the other.
+ */
+export const profileSchema = z.object({
+  displayName: z.string().trim().min(1, 'กรุณากรอกชื่อที่แสดง').max(40),
+  slug: streamerSlugSchema,
+  bio: z.string().trim().max(300).nullable(),
+  avatarUrl: z.url().max(500).nullable(),
+  // Thai messages, because these are the two fields a streamer can realistically
+  // push past the system bounds, and Zod's default "Too big: expected number to
+  // be <=10000000" is both English and in satang — two units and one language
+  // away from anything the person typing baht into the form can act on.
+  minAmount: satangBound('ยอดขั้นต่ำ'),
+  maxAmount: satangBound('ยอดสูงสุด'),
+})
+
+export type ProfileInput = z.infer<typeof profileSchema>
+
 export const alertSettingSchema = z.object({
   template: z.string().trim().min(1).max(120),
   durationMs: z.number().int().min(2_000).max(20_000),

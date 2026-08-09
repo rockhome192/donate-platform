@@ -36,6 +36,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         displayName={streamer?.displayName ?? session.user.email ?? 'บัญชีผู้ใช้'}
         email={session.user.email ?? ''}
         slug={streamer?.slug ?? null}
+        isAdmin={session.user.role === 'ADMIN'}
       />
       <main className="min-w-0 flex-1 px-5 py-6 md:px-8 md:py-8">
         <div className="mx-auto w-full max-w-4xl">{children}</div>
