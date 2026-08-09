@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { bangkokDayKey, bangkokDayStart, buildDaySeries } from '@/lib/dashboard-stats'
+import {
+  bangkokDayKey,
+  bangkokDayStart,
+  bangkokMonthStart,
+  buildDaySeries,
+} from '@/lib/dashboard-stats'
 
 /**
  * The chart's day maths, which is entirely about a timezone the test runner
@@ -33,6 +38,38 @@ describe('bangkokDayStart', () => {
   it('is idempotent — the start of a day is its own day start', () => {
     const start = bangkokDayStart(new Date('2026-08-05T09:00:00Z'))
     expect(bangkokDayStart(start).toISOString()).toBe(start.toISOString())
+  })
+})
+
+describe('bangkokMonthStart', () => {
+  /**
+   * Feeds the THIS MONTH tile on the public donate page. The seven hours either
+   * side of a UTC month boundary are the whole point: a donation at 01:00 on
+   * the 1st in Bangkok is still the previous month in UTC, and would be missing
+   * from a tile the streamer checks precisely because a new month started.
+   */
+  it('starts the month at 17:00 UTC on the last day of the previous one', () => {
+    expect(bangkokMonthStart(new Date('2026-08-09T09:00:00Z')).toISOString()).toBe(
+      '2026-07-31T17:00:00.000Z',
+    )
+  })
+
+  it('counts a 01:00 Bangkok donation on the 1st as this month', () => {
+    const oneAmOnTheFirst = new Date('2026-07-31T18:00:00Z') // 01:00 Bangkok, 1 Aug
+    expect(oneAmOnTheFirst >= bangkokMonthStart(oneAmOnTheFirst)).toBe(true)
+    expect(bangkokDayKey(oneAmOnTheFirst)).toBe('2026-08-01')
+  })
+
+  it('excludes 23:59 Bangkok on the last day of the previous month', () => {
+    const now = new Date('2026-08-09T09:00:00Z')
+    const lastMinuteOfJuly = new Date('2026-07-31T16:59:59Z')
+    expect(lastMinuteOfJuly >= bangkokMonthStart(now)).toBe(false)
+  })
+
+  it('handles the January rollover without falling into month -1', () => {
+    expect(bangkokMonthStart(new Date('2026-01-15T09:00:00Z')).toISOString()).toBe(
+      '2025-12-31T17:00:00.000Z',
+    )
   })
 })
 

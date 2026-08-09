@@ -82,6 +82,21 @@ export function bangkokDayStart(now: Date): Date {
   return new Date(midnightShifted - BANGKOK_OFFSET_MS)
 }
 
+/**
+ * Midnight on the 1st of the Bangkok calendar month, as the UTC instant it
+ * corresponds to.
+ *
+ * Same reason as `bangkokDayStart`: a "this month" total computed off a UTC
+ * month boundary is wrong for the seven hours either side of it, and the
+ * donations most likely to land there are the ones from a stream that ran past
+ * midnight on the 1st.
+ */
+export function bangkokMonthStart(now: Date): Date {
+  const shifted = new Date(now.getTime() + BANGKOK_OFFSET_MS)
+  const firstShifted = Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), 1)
+  return new Date(firstShifted - BANGKOK_OFFSET_MS)
+}
+
 /** The Bangkok calendar date a UTC instant falls on, as a y/m/d key. */
 export function bangkokDayKey(instant: Date): string {
   return new Date(instant.getTime() + BANGKOK_OFFSET_MS).toISOString().slice(0, 10)

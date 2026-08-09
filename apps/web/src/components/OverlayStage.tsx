@@ -2,26 +2,40 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AlertCard } from '@/components/AlertCard'
-import { LiveDot, PanelHeader, StatusTrack } from '@/components/ui'
+import { LiveDot, StatusTrack, TechLabel } from '@/components/ui'
 
 /**
- * The landing page's centrepiece: the alert arriving, on the transparent OBS
- * stage it actually lives on.
+ * The landing page's centrepiece: the alert arriving, in the framed stage the
+ * v2 design file draws for it.
  *
  * A still picture of an alert is the one thing every competitor's landing page
  * already has, and it misses what the product is — the arrival, and the fact
  * that the three pipeline stages complete before anything reaches the screen.
  * So the track advances in step with the animation rather than beside it.
  *
- * PROGRESSIVE ENHANCEMENT, deliberately. The server renders the finished
- * state: alert visible, track complete. JavaScript then *rewinds* to the idle
- * state and plays. The reverse — hiding the content in CSS and revealing it on
- * mount — is what left a previous project blank on phones where hydration
- * failed, and it fails silently, which is the worst kind.
+ * COMPOSITION IS THE DESIGN FILE'S. Its stage is a self-contained dark box:
+ * dot grid, four accent corner brackets, a status row across the top, then the
+ * alert and the queued item stacked IN FLOW beneath it. The previous build had
+ * the alert absolutely positioned on a 16:9 OBS checkerboard with the panel
+ * header outside the frame, which is a different picture — this is the one the
+ * user drew.
  *
- * Everything shown is labelled sample data. Nothing here reports a real
- * connection — this panel is a representation, not a live socket, and says so
- * in its own header.
+ * Three things in that drawing did not survive, for the reason that has held on
+ * this page since part one — it may not claim something the product does not do:
+ *
+ * - **"OBS · CONNECTED" and the "LIVE" chip.** Nothing here is connected to
+ *   anything. The row keeps its anatomy and says what is true instead.
+ * - **The GOAL TODAY progress bar.** There is no goal anywhere in the schema. A
+ *   sample donation is sample DATA and says so; a goal bar advertises a FEATURE.
+ *   The status track takes its slot, which is the same shape doing a real job.
+ * - **The amber offset shadow.** Amber means money in this system. The offset
+ *   block is kept in accent, matching the CTA directly above it.
+ *
+ * PROGRESSIVE ENHANCEMENT, deliberately. The server renders the finished state:
+ * alert visible, track complete. JavaScript then *rewinds* to the idle state and
+ * plays. The reverse — hiding the content in CSS and revealing it on mount — is
+ * what left a previous project blank on phones where hydration failed, and it
+ * fails silently, which is the worst kind.
  */
 
 type Stage = 'static' | 'idle' | 'pending' | 'paid' | 'alerted' | 'leaving' | 'gone'
@@ -44,15 +58,9 @@ const TRACK_INDEX: Record<Stage, number> = {
  *
  * The alert leaves at the end of its duration because that is what a real one
  * does — and then the NEXT donation arrives, because that is also what really
- * happens on a stream. A single alert playing once and leaving an empty
- * checkerboard for the rest of the visit is the least true version of this
- * panel, not the most: it shows a stream where exactly one person ever
- * donated.
- *
- * A different donor each pass is what keeps this from being decoration. The
- * motion rule in globals.css is that movement reports causality — a loop
- * replaying one identical alert would report nothing, while a queue of
- * different arrivals is the product's actual behaviour under load.
+ * happens on a stream. A single alert playing once and leaving an empty stage
+ * for the rest of the visit is the least true version of this panel, not the
+ * most: it shows a stream where exactly one person ever donated.
  *
  * Names, amounts and messages are the sample set from the v2 design file, and
  * the stage labels them as invented in its own caption.
@@ -80,6 +88,25 @@ const CORNERS = [
   { key: 'br', className: 'bottom-3 right-3 rounded-br-[4px] border-r-2 border-b-2' },
 ] as const
 
+/**
+ * What the alert slot says while no alert is on screen.
+ *
+ * These are the pipeline's real stages, not filler: a donation genuinely sits
+ * at PENDING until a webhook confirms it, and genuinely does not reach the
+ * overlay until after that. `static` and `alerted` never reach this map — the
+ * alert itself is showing then — but every stage is listed so adding one later
+ * cannot silently render an empty string.
+ */
+const IDLE_CAPTION: Record<Stage, string> = {
+  static: 'รอโดเนทถัดไป…',
+  idle: 'รอโดเนทถัดไป…',
+  pending: 'มีคนสร้าง QR แล้ว — รอชำระเงิน',
+  paid: 'webhook ยืนยันว่าจ่ายแล้ว — กำลังส่งขึ้นจอ',
+  alerted: 'รอโดเนทถัดไป…',
+  leaving: 'รอโดเนทถัดไป…',
+  gone: 'รอโดเนทถัดไป…',
+}
+
 /** Quiet stage between two donations. Long enough to read as a gap, not a stall. */
 const GAP_MS = 1_800
 const CYCLE_MS = 5_700 + GAP_MS
@@ -90,8 +117,17 @@ export function OverlayStage() {
   const [stage, setStage] = useState<Stage>('static')
   const [enhanced, setEnhanced] = useState(false)
   const [sample, setSample] = useState(0)
+  const [paused, setPaused] = useState(false)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   const stageRef = useRef<HTMLDivElement>(null)
+  /**
+   * Read by the IntersectionObserver, which must not restart a paused loop when
+   * the panel scrolls back into view. A ref rather than state because the
+   * observer is created once and would otherwise capture the value it was built
+   * with — the classic stale closure, and here it presents as "pause works
+   * until you scroll away and back".
+   */
+  const pausedRef = useRef(false)
 
   const clearTimers = useCallback(() => {
     timers.current.forEach(clearTimeout)
@@ -115,6 +151,19 @@ export function OverlayStage() {
     )
   }, [clearTimers])
 
+  const pause = useCallback(() => {
+    pausedRef.current = true
+    setPaused(true)
+    // Holds the frame that is on screen. `stage` is left exactly as it is.
+    clearTimers()
+  }, [clearTimers])
+
+  const resume = useCallback(() => {
+    pausedRef.current = false
+    setPaused(false)
+    play()
+  }, [play])
+
   useLayoutEffect(() => {
     // Respect the OS setting before anything moves. Reduced motion keeps the
     // finished state, which still says everything the animation would.
@@ -137,7 +186,9 @@ export function OverlayStage() {
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries.some((e) => e.isIntersecting)
-        if (visible) play()
+        // A deliberate pause outranks visibility: scrolling away and back must
+        // not restart something the viewer stopped on purpose.
+        if (visible && !pausedRef.current) play()
         else clearTimers()
       },
       { threshold: 0.4 },
@@ -155,113 +206,127 @@ export function OverlayStage() {
   const next = SAMPLES[(sample + 1) % SAMPLES.length]!
 
   return (
-    <>
-      <PanelHeader
-        label="OBS Browser Source"
-        right={
-          <span className="flex items-center gap-2 text-meta text-faint">
-            <LiveDot live={false} />
-            ตัวอย่าง — ยังไม่ได้เชื่อมต่อจริง
-          </span>
-        }
-      />
+    <div
+      ref={stageRef}
+      className="dot-grid relative mx-auto flex min-h-[19.5rem] w-full max-w-3xl flex-col overflow-hidden rounded-panel border border-line-strong bg-inset p-5 shadow-[10px_10px_0_rgba(255,59,78,0.12)] sm:p-6"
+    >
+      {CORNERS.map((corner) => (
+        <span key={corner.key} aria-hidden className={`absolute size-5 border-accent ${corner.className}`} />
+      ))}
 
-      {/*
-        16:9 is the canvas an overlay is composited onto, and the alert anchors
-        to a corner of it rather than floating in the middle. But a true 16:9 at
-        this container's width is ~550px tall, which leaves most of the panel as
-        empty texture and pushes the headline under the fold — the same void the
-        old centred card had, just patterned.
-
-        max-h caps it into a letterbox of the TOP of the stream canvas, which is
-        exactly the band the alert lives in. Phones keep the real ratio, since
-        16:9 of 350px is only ~200px tall and needs no crop.
-      */}
-      <div
-        ref={stageRef}
-        className="obs-checker relative aspect-video max-h-80 w-full overflow-hidden border-b border-line"
-      >
-        {/* Corner brackets, from the v2 design. Accent rather than the design's
-            amber: amber means money here, and a frame is not money. 2px accent
-            on the checkerboard measures 3.96:1, clear of the 3:1 a meaningful
-            graphic needs. */}
-        {CORNERS.map((corner) => (
-          <span
-            key={corner.key}
-            aria-hidden
-            className={`absolute size-5 border-accent ${corner.className}`}
-          />
-        ))}
-
-        {showAlert && (
-          <AlertCard
-            headline={
-              <>
-                {current.name} โดเนท{' '}
-                <span className="font-numeric tabular-nums">{current.amount}</span>
-              </>
-            }
-            message={current.message}
-            className={`absolute top-[8%] left-[4%] w-[min(26rem,76%)] ${
-              stage === 'alerted' ? 'animate-alert-in' : ''
-            } ${stage === 'leaving' ? 'animate-alert-out' : ''}`}
-          />
-        )}
-
-        {/*
-          The design puts a second, dimmer row under the alert reading
-          "กำลังจะเด้ง". That one is not decoration and it is not invented — the
-          overlay really does hold a queue and play one alert at a time
-          (AlertQueue, DESIGN.md 8.2), so this is the only place on the page
-          that shows the product's actual behaviour under two donations at once.
-          Shown while an alert is on screen, which is exactly when a queue would
-          have something in it.
-        */}
-        {showAlert && (
-          <div className="absolute top-[8%] left-[4%] mt-2 flex w-[min(26rem,76%)] translate-y-[5.25rem] items-center gap-3 rounded-control border border-line bg-surface/90 px-3.5 py-2.5">
-            <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-chip bg-white/6 text-label">
-              ⭐
-            </span>
-            <p className="truncate text-meta text-muted">
-              {next.name} โดเนท{' '}
-              <span className="font-numeric font-semibold tabular-nums text-money">
-                {next.amount}
-              </span>{' '}
-              · กำลังจะเด้ง
-            </p>
-          </div>
-        )}
-
-        <p className="absolute right-3 bottom-2.5 left-3 text-center text-micro text-faint">
-          ภาพจำลอง — ชื่อ ยอดเงิน และข้อความเป็นข้อมูลสมมติ
-          <span className="hidden sm:inline"> · ตารางคือพื้นโปร่งใสแบบที่ OBS แสดง</span>
-        </p>
+      {/* The design's status row. Same anatomy — state on the left, a chip on
+          the right — carrying what this panel can honestly report. */}
+      <div className="relative flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2">
+          <LiveDot live={false} />
+          <TechLabel>OBS browser source</TechLabel>
+        </span>
+        <span className="label-tech rounded-chip bg-accent px-2.5 py-1 text-white">demo</span>
       </div>
 
-      <div className="px-4 py-4 sm:px-6">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-          <div className="min-w-[15rem] flex-1">
-            <StatusTrack steps={TRACK} currentIndex={TRACK_INDEX[stage]} />
+      {/*
+        The alert and the queue sit in normal flow, as the design draws them.
+        min-h on the wrapper holds the box open through the idle gap so the page
+        does not shift every 7.5 seconds — an animation that reflows the section
+        below it is worse than no animation.
+      */}
+      <div className="relative mt-5 min-h-[8.75rem]">
+        {/*
+          The gap between two donations is 3 of every 7.5 seconds, and on the
+          design's flat panel — unlike the old checkerboard, which read as an
+          empty OBS canvas on its own — a blank slot for that long reads as a
+          component that failed to load.
+          It is filled with what the pipeline is doing at that exact moment,
+          which is the same thing the track underneath is reporting. So the
+          quiet half of the cycle now says something instead of going dark.
+        */}
+        {!showAlert && (
+          <div className="flex min-h-[4.75rem] items-center gap-3 rounded-panel border border-dashed border-line-strong px-4 py-3.5">
+            <LiveDot live={stage === 'pending' || stage === 'paid'} tone="money" />
+            <p className="text-label text-faint">{IDLE_CAPTION[stage]}</p>
           </div>
+        )}
 
-          {/* Only offered once JS is driving. Without it the panel is already
-              at its finished state and there is nothing to replay. */}
+        {showAlert && (
+          <>
+            <AlertCard
+              headline={
+                <>
+                  {current.name} โดเนท{' '}
+                  <span className="font-numeric tabular-nums">{current.amount}</span>
+                </>
+              }
+              message={current.message}
+              className={
+                stage === 'alerted'
+                  ? 'animate-alert-in'
+                  : stage === 'leaving'
+                    ? 'animate-alert-out'
+                    : ''
+              }
+            />
+
+            {/*
+              The design's second, dimmer row reading "กำลังจะเด้ง". Not
+              decoration and not invented — the overlay really does hold a queue
+              and play one alert at a time (AlertQueue, DESIGN.md 8.2), so this
+              is the only place on the page that shows the product's actual
+              behaviour under two donations at once.
+            */}
+            <div className="mt-2.5 flex items-center gap-3 rounded-control border border-line bg-surface-2/85 px-4 py-2.5">
+              <span
+                aria-hidden
+                className="grid size-9 shrink-0 place-items-center rounded-chip bg-white/6 text-label"
+              >
+                ⭐
+              </span>
+              <p className="truncate text-meta text-muted">
+                {next.name} โดเนท{' '}
+                <span className="font-numeric font-semibold tabular-nums text-money">
+                  {next.amount}
+                </span>{' '}
+                · กำลังจะเด้ง
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* GOAL TODAY's slot, doing a real job. Label left, control right, exactly
+          the row the design puts here. */}
+      <div className="relative mt-auto pt-5">
+        <div className="flex items-center justify-between gap-3 pb-2">
+          <TechLabel>pipeline</TechLabel>
+          {/*
+            A pause, not a replay. This loops indefinitely at 7.5s, and WCAG
+            2.2.2 asks for a way to stop anything that moves automatically for
+            more than five seconds — a button that RESTARTS the loop is the one
+            thing that does not satisfy it. Pausing holds the current frame
+            rather than clearing it, so stopping mid-alert leaves the alert on
+            screen to be read at leisure, which is the actual reason someone
+            reaches for this.
+
+            Only offered once JS is driving: without it the panel is already at
+            its finished state and nothing is moving.
+          */}
           {enhanced && (
             <button
               type="button"
-              onClick={play}
-              className="label-tech shrink-0 rounded-chip border border-line-strong px-3 py-2 text-muted transition-colors hover:border-accent-text hover:text-ink"
+              onClick={() => (paused ? resume() : pause())}
+              aria-pressed={paused}
+              className="label-tech rounded-chip border border-line-strong px-2.5 py-1 text-muted transition-colors hover:border-accent-text hover:text-ink"
             >
-              ▶ เล่นอีกครั้ง
+              {paused ? '▶ เล่นต่อ' : '❙❙ หยุด'}
             </button>
           )}
         </div>
-
-        <p className="mt-3 text-meta leading-relaxed text-faint">
-          ทุกโดเนทเดินผ่านสามสถานะนี้ — สร้าง QR แล้วรอชำระ, webhook ยืนยันว่าจ่ายจริง,
-          แล้วจึงยิงขึ้นจอ ถ้า overlay หลุดตอน alert ออก ระบบเก็บไว้ให้แล้วส่งซ้ำตอนต่อกลับ
-        </p>
+        <StatusTrack steps={TRACK} currentIndex={TRACK_INDEX[stage]} />
       </div>
-    </>
+
+      <p className="relative mt-4 text-micro leading-relaxed text-faint">
+        ภาพจำลอง — ชื่อ ยอดเงิน และข้อความเป็นข้อมูลสมมติ ทุกโดเนทเดินผ่านสามสถานะนี้: สร้าง QR
+        แล้วรอชำระ, webhook ยืนยันว่าจ่ายจริง, แล้วจึงยิงขึ้นจอ
+      </p>
+    </div>
   )
 }

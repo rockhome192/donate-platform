@@ -148,9 +148,11 @@ export default async function HomePage() {
             </p>
           </section>
 
-          <Panel className="mt-4 overflow-hidden">
+          {/* No Panel wrapper: the design's stage is its own framed box, and
+              nesting it in a second one gave the alert two borders. */}
+          <section className="mt-6" aria-label="ตัวอย่าง alert บนจอสตรีม">
             <OverlayStage />
-          </Panel>
+          </section>
 
           {/*
             Below TICKER_MIN the row is narrower than the viewport, and a
