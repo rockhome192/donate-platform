@@ -25,8 +25,10 @@ import { db } from '@/lib/db'
  * - **The GOAL TODAY progress bar (฿620 / ฿1,000).** There is no goal anywhere
  *   in the schema. A sample donation is sample DATA and says so; a goal bar
  *   advertises a FEATURE, and a visitor who signs up for it finds nothing.
- * - **"เริ่มใช้งานฟรี" / "สร้างบัญชีฟรี →".** There is no registration. Both
- *   buttons point at the demo account instead and say that is what they are.
+ * - ~~**"เริ่มใช้งานฟรี" / "สร้างบัญชีฟรี →".**~~ Reinstated: registration
+ *   exists now (`/register`), so the design's own copy is true and both buttons
+ *   point at it. They said "ลองด้วยบัญชีเดโม่" for as long as there was nothing
+ *   to sign up for.
  * - **STREAMLABS in the trust line.** The overlay is a browser source and has
  *   only ever been run in OBS. Omise test mode has been, so it takes the slot.
  * - **The invented ticker.** The design fills it with made-up donors, which is
@@ -43,8 +45,8 @@ const STEPS = [
   {
     no: '01',
     icon: '👤',
-    title: 'เข้าสู่ระบบ',
-    body: 'ตอนนี้เปิดให้ลองด้วยบัญชีเดโม่ กดปุ่มกรอกอัตโนมัติในหน้าล็อกอินได้เลย',
+    title: 'สมัครและตั้งลิงก์',
+    body: 'สมัครแล้วเลือกลิงก์หน้าโดเนทของตัวเอง หรือกดเข้าด้วยบัญชีเดโม่ถ้าแค่อยากลองดูก่อน',
   },
   {
     no: '02',
@@ -109,18 +111,26 @@ export default async function HomePage() {
             </p>
 
             <div className="mt-7 flex flex-wrap justify-center gap-3">
-              {/* The design says "เริ่มใช้งานฟรี". There is nothing to sign up
-                  for, so the button says what it actually does. */}
               <Link
-                href="/login"
+                href="/register"
                 className={buttonClass('primary', 'lg', 'shadow-[5px_5px_0_rgba(255,59,78,0.22)]')}
               >
-                ลองด้วยบัญชีเดโม่
+                เริ่มใช้งานฟรี
               </Link>
               <Link href="/demo" className={buttonClass('secondary', 'lg')}>
                 ลองส่งโดเนท →
               </Link>
             </div>
+
+            {/* Kept beside the signup button rather than replaced by it: a
+                recruiter opening this link wants to see the console in ten
+                seconds, not fill in a form first. */}
+            <p className="mt-3 text-meta text-faint">
+              หรือ{' '}
+              <Link href="/login" className="text-muted underline underline-offset-4 hover:text-ink">
+                เข้าสู่ระบบด้วยบัญชีเดโม่
+              </Link>
+            </p>
 
             <p className="mt-6 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-meta text-faint">
               ใช้กับ
@@ -215,13 +225,13 @@ export default async function HomePage() {
               พร้อมเริ่มรับโดเนทแล้วยัง?
             </h2>
             <p className="mt-3 text-body font-medium text-white">
-              เปิดหน้าโดเนทของคุณได้ในไม่กี่นาที · ตอนนี้ลองผ่านบัญชีเดโม่ได้เลย
+              เปิดหน้าโดเนทของคุณได้ในไม่กี่นาที · ไม่มีค่าใช้จ่าย
             </p>
             <Link
-              href="/login"
+              href="/register"
               className="mt-7 inline-flex items-center justify-center gap-2 rounded-control bg-canvas px-8 py-3.5 text-body font-semibold text-ink transition-colors hover:bg-surface"
             >
-              เข้าสู่ระบบด้วยบัญชีเดโม่ →
+              สร้างบัญชีฟรี →
             </Link>
           </section>
         </main>

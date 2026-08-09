@@ -33,15 +33,24 @@ export default function LoginPage() {
             <Suspense fallback={null}>
               <LoginForm />
             </Suspense>
+
+            {/* The design's auth toggle. It links somewhere real now — until
+                registration existed this line was deliberately absent, because a
+                link to a page that does not exist is the same defect as an
+                invented statistic, just one that fails later on a click. */}
+            <p className="mt-5 text-center text-label text-muted">
+              ยังไม่มีบัญชี?{' '}
+              <Link
+                href="/register"
+                className="font-semibold text-accent-text underline underline-offset-4 hover:text-ink"
+              >
+                สมัครใช้งาน
+              </Link>
+            </p>
           </div>
 
-          {/*
-            There is no signup, so the design's "ยังไม่มีบัญชี? สมัครเลย" line is
-            not here. A link to a page that does not exist is the same defect as
-            an invented statistic — it just fails later, on a click.
-          */}
           <p className="mt-5 text-center text-meta text-faint">
-            ระบบสาธิต ไม่รับเงินจริง — ยังไม่เปิดให้สมัครบัญชีใหม่
+            ระบบสาธิต — ไม่รับเงินจริง และไม่มีการจ่ายเงินออกจริง
           </p>
         </div>
       </main>

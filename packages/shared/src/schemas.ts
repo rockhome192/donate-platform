@@ -113,6 +113,74 @@ export const ackAlertsSchema = z.object({
 
 export type AckAlertsInput = z.infer<typeof ackAlertsSchema>
 
+/**
+ * Password rules for registration.
+ *
+ * The 72-BYTE ceiling is bcrypt's, not a product decision: every bcrypt
+ * implementation — bcryptjs included — silently ignores everything past byte 72
+ * of the input. Left unchecked, two different long passwords can hash to the
+ * same value and the user is never told, which is the worst possible way to
+ * find out. Bytes, not characters, because Thai is 3 bytes per character in
+ * UTF-8: 24 Thai characters already reach the limit.
+ */
+export const passwordSchema = z
+  .string()
+  .min(8, 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร')
+  .max(200, 'รหัสผ่านยาวเกินไป')
+  .refine(
+    (p) => new TextEncoder().encode(p).length <= 72,
+    'รหัสผ่านยาวเกินไป (ระบบเข้ารหัสรองรับสูงสุด 72 ไบต์)',
+  )
+
+/**
+ * POST /api/register — NOT /api/auth/register, which is NextAuth's catch-all.
+ *
+ * A signup creates a User AND the Streamer row that owns the donate page, so
+ * the slug is chosen here rather than later — there is no state in this product
+ * where an account exists without a page.
+ *
+ * Email is trimmed and lowercased BEFORE validation: `User.email` is unique and
+ * case-sensitive in Postgres, so without this "Demo@x.com" and "demo@x.com"
+ * become two accounts and the second one can never sign in as the first.
+ */
+export const registerSchema = z.object({
+  email: z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+    z.email('อีเมลไม่ถูกต้อง').max(200),
+  ),
+  password: passwordSchema,
+  displayName: z.string().trim().min(1, 'กรุณากรอกชื่อที่แสดง').max(40),
+  slug: streamerSlugSchema,
+  // No `website` honeypot field here, unlike createDonationSchema. The form runs
+  // this schema client-side to show inline errors, and a `max(0)` field would
+  // turn a browser autofilling an off-screen input labelled "Website" into
+  // "Too big: expected string to have <=0 characters" — English, in a Thai form,
+  // pointing at a control at left:-9999px that the user cannot find or clear.
+  // Signup would be impossible with no visible cause. The honeypot is checked
+  // on the raw body by the route instead, via isHoneypotFilled.
+})
+
+export type RegisterInput = z.infer<typeof registerSchema>
+
+/**
+ * Real people never fill this field; it is off-screen and has no label they can
+ * see.
+ *
+ * **Every route that has a honeypot must call this BEFORE its Zod parse.** A
+ * schema rejects a filled honeypot too, but with a field name and a reason
+ * attached — which hands a bot the exact input to leave alone next time, and in
+ * a Thai UI it surfaces as an untranslated Zod string blaming a control the user
+ * cannot see. Shared rather than copied per route so the two cannot drift.
+ */
+export function isHoneypotFilled(body: unknown): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    'website' in body &&
+    Boolean((body as { website?: unknown }).website)
+  )
+}
+
 export const alertSettingSchema = z.object({
   template: z.string().trim().min(1).max(120),
   durationMs: z.number().int().min(2_000).max(20_000),

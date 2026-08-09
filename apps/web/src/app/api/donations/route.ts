@@ -1,4 +1,4 @@
-import { createDonationSchema } from '@dp/shared'
+import { createDonationSchema, isHoneypotFilled } from '@dp/shared'
 import { db } from '@/lib/db'
 import { checkStreamerRules, donationExpiry } from '@/lib/donation-rules'
 import { getPaymentProvider, ProviderUnavailableError } from '@/lib/payments'
@@ -17,16 +17,6 @@ export const runtime = 'nodejs'
 
 const RATE_LIMIT = { requests: 10, windowSeconds: 60 }
 
-/** Real people never fill this field; it is off-screen and has no label they can see. */
-function isHoneypotFilled(body: unknown): boolean {
-  return (
-    typeof body === 'object' &&
-    body !== null &&
-    'website' in body &&
-    Boolean((body as { website?: unknown }).website)
-  )
-}
-
 export async function POST(req: Request) {
   const ip = clientIp(req.headers)
   const limit = await rateLimit(`donate:${ip}`, RATE_LIMIT.requests, RATE_LIMIT.windowSeconds)
@@ -44,9 +34,8 @@ export async function POST(req: Request) {
     return Response.json({ error: 'รูปแบบข้อมูลไม่ถูกต้อง' }, { status: 400 })
   }
 
-  // Honeypot, checked before Zod on purpose. The schema would reject it too,
-  // but with a field name and a reason attached — which tells a bot exactly
-  // which input to leave alone next time.
+  // Honeypot, checked before Zod on purpose — the reason now lives with the
+  // predicate in @dp/shared, where /api/register shares it.
   if (isHoneypotFilled(body)) {
     return Response.json({ error: 'ข้อมูลไม่ถูกต้อง' }, { status: 400 })
   }
