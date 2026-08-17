@@ -299,6 +299,52 @@ select:focus-visible {
   animation: track-advance 0.5s ease both;
 }
 
+/* ---- loading skeletons ------------------------------------------------
+   A skeleton is a promise that content is on its way, and a promise kept in
+   60ms is not reassurance, it is a flicker. Measured against the real Neon
+   database, a warm dashboard renders in ~100ms and the settings screens in
+   ~55ms — so on almost every navigation the right thing to show is NOTHING,
+   and a skeleton that appears anyway makes a fast app look busy.
+
+   Hence the delay. The boundary is always there; it simply has nothing
+   visible to say for the first fifth of a second, which is roughly where a
+   response stops feeling instant. What it protects against is the slow case
+   this deployment really has: a free-tier database suspends when idle, so the
+   first visitor after a quiet spell waits on a machine waking up.
+
+   The delay is an animation, not a timer. A timer would need state, an effect
+   and therefore a client component — and these render inside `loading.tsx`,
+   which is server-rendered before the page it stands in for. `both` is what
+   holds the screen at opacity 0 through the delay rather than flashing it up
+   and fading it in. */
+@keyframes skeleton-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@utility skeleton-screen {
+  animation: skeleton-reveal 0.18s ease-out 0.2s both;
+}
+
+/* Blocks read as "not yet" rather than "empty": surface-2 is the raised step,
+   so a placeholder sits ON the panel instead of punching a hole in it. */
+@utility skeleton {
+  display: block;
+  border-radius: 4px;
+  background-color: var(--color-surface-2);
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
 /* Reduced motion kills the animation, never the information: every state that
    an animation communicates is also written in text somewhere on screen. */
 @media (prefers-reduced-motion: reduce) {
