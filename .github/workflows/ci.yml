@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch makes the first run's answer worthless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck / test / build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reads the pinned version from package.json's `packageManager` field.
+      - uses: pnpm/action-setup@v4
+
+      # Must come AFTER pnpm exists, or `cache: pnpm` has no store to point at.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # @prisma/client's own postinstall runs AFTER @dp/web's `prisma generate`
+      # and regenerates a schema-less client, wiping the enum exports. Every
+      # `import { DonationStatus } from '@prisma/client'` then fails to compile.
+      - name: Regenerate the Prisma client
+        run: pnpm --filter @dp/web exec prisma generate
+
+      # typedRoutes: true means app code does not typecheck until the route
+      # manifest exists — a fresh checkout has no .next/, so every typed href
+      # would fail with TS2322.
+      - name: Generate the route manifest
+        run: pnpm --filter @dp/web exec next typegen
+
+      - run: pnpm typecheck
+
+      # Unit only, across all three workspaces. No database, no env.
+      # The integration layer (`pnpm --filter @dp/web test:int`) needs a real
+      # DIRECT_URL and is run locally against Neon — it is not in CI because a
+      # suite that silently skips itself is worse than no suite.
+      - run: pnpm test
+
+      # `next build` never connects: every DB-touching route is dynamic. These
+      # values only have to EXIST — lib/env.ts throws on a missing var, and the
+      # NEXT_PUBLIC_* one is inlined into the client bundle at build time.
+      - name: Build
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          DIRECT_URL: postgresql://ci:ci@localhost:5432/ci
+          NEXTAUTH_SECRET: ci-build-only
+          NEXTAUTH_URL: http://localhost:3000
+          REALTIME_JWT_SECRET: ci-build-only
+          REALTIME_INTERNAL_SECRET: ci-build-only
+          REALTIME_HTTP_URL: http://localhost:8080
+          NEXT_PUBLIC_REALTIME_WS_URL: ws://localhost:8080
+          CRON_SECRET: ci-build-only
+          MOCK_WEBHOOK_SECRET: ci-build-only
+        run: pnpm build
