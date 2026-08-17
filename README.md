@@ -1,5 +1,7 @@
 # donate-platform
 
+[![CI](https://github.com/rockhome192/donate-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/rockhome192/donate-platform/actions/workflows/ci.yml)
+
 > ⚠️ **โปรเจกต์สาธิต (sandbox) — ไม่รับเงินจริง**
 > การชำระเงินทั้งหมดเป็นการจำลอง ไม่มีเงินจริงเคลื่อนย้าย และไม่มีการจ่ายเงินออกจริง
 > เหตุผล: การรับโดเนทแล้วจ่ายต่อให้บุคคลที่สามเข้าข่ายธุรกิจที่ ธปท. กำกับ และ payment
@@ -19,18 +21,31 @@
 | **M0** — monorepo, Prisma schema, NextAuth, seed | ✅ เสร็จ |
 | **M1** — หน้าโดเนท + MockProvider + dashboard + validation 2 ชั้น | ✅ เสร็จ |
 | **M3** — Omise adapter + webhook + `after()` + idempotency + reconciler | ✅ เสร็จ |
-| M2a — WebSocket server | ⬜ (มีแค่ health check + room registry + reconciler clock) |
-| M2b — OBS overlay client | ⬜ |
-| M4 — ตั้งค่า alert, rotate token, test alert | ⬜ |
-| M5 — CI + deploy | ⬜ |
+| **M2a** — WebSocket server: ticket 60 วิ, replay guard, heartbeat, `/internal/*` | ✅ เสร็จ |
+| **M2b** — OBS overlay client: reconnect backoff, alert queue, `/missed` + ack | ✅ เสร็จ |
+| **M4** — ตั้งค่า alert, rotate token, test alert | ✅ เสร็จ |
+| **นอกแผน** — สมัครสมาชิก, หน้าโปรไฟล์, หน้าแอดมิน, redesign v2 ทุกจอ | ✅ เสร็จ |
+| M5 — CI + deploy | 🟡 CI แล้ว, ยังไม่ deploy |
 
-**ใช้งานได้จริงตอนนี้:** `/{slug}` กรอกจำนวนเงินแล้วได้ QR (จำลอง) + นับถอยหลัง +
-poll สถานะ, ปุ่ม **"จำลองการจ่ายเงิน (simulated webhook)"** เดินผ่าน pipeline จริงจนโดเนทเป็น
-`PAID`, dashboard แสดงประวัติกับยอดรวม, login ด้วยบัญชีเดโม่
+**ใช้งานได้จริงตอนนี้ — ครบสายตั้งแต่จ่ายจนเด้งขึ้นจอ:** `/{slug}` กรอกจำนวนเงินแล้วได้ QR (จำลอง)
+พร้อมนับถอยหลังและ poll สถานะ → ปุ่ม **"จำลองการจ่ายเงิน (simulated webhook)"** เดินผ่าน pipeline
+จริงจนโดเนทเป็น `PAID` → publish เข้า `apps/realtime` → **alert เด้งบน OBS overlay จริง**
+(ตรวจ end-to-end ด้วยสองเซอร์วิสรันพร้อมกันแล้ว)
+นอกจากนั้น: สมัครสมาชิกเอง, dashboard + ประวัติ + ยอดรวมรายวัน, ตั้งค่า alert (template/
+ระยะเวลา/ยอดขั้นต่ำ) ที่ push ลง overlay ที่เปิดค้างอยู่ทันที, rotate overlay token,
+ปุ่มยิง alert ทดสอบ, แก้โปรไฟล์, และหน้าแอดมินสำหรับระงับ/ปลดระงับบัญชี
 
-**ยังไม่ได้:** alert ยังไม่เด้งขึ้นจอ — ตัว publish ยิงไปที่ `apps/realtime` ซึ่ง `/internal/publish`
-ยังไม่มี (M2a) โดเนทที่จ่ายแล้วจึงค้างเป็น "ยังไม่เด้ง" (`alertedAt IS NULL`) รอ `/missed` มาเก็บ
-— **ตั้งใจให้เป็นแบบนี้ ไม่ใช่บั๊ก** publish ล้มเหลวห้าม rollback `PAID` (DESIGN.md 8.3.1)
+**ยังไม่ได้ — ที่รู้ตัวและตั้งใจปล่อยไว้:**
+- **ยังไม่ deploy** จึงยังไม่มี public HTTPS URL → การตรวจลายเซ็น webhook ของ Omise
+  **เขียนตามสเปกแล้วแต่ยังไม่เคยเจอ event จริง** (Omise ไม่ยิงเข้า localhost และไม่รับ
+  self-signed cert) ส่วนที่ตรวจกับ Omise test mode จริงแล้วคือขา source → charge → อ่าน QR →
+  retrieve กลับมาเป็น `successful`
+- **อัปโหลดรูปโปรไฟล์ยังไม่เคยรันกับ bucket จริง** — ยังไม่ได้ตั้งค่า R2 ทั้งห้าตัวแปร
+  ตอนนี้ปุ่มอัปโหลดจึงถูกปิดและ endpoint ตอบ 503 (ตั้งใจ: เดพลอยที่ไม่มี bucket ต้องรันได้)
+  ช่องอื่นในหน้าโปรไฟล์ใช้ได้ปกติ
+- **ไม่มี ESLint config ในรีโปเลย** — คอมเมนต์ `eslint-disable-next-line` ที่มีอยู่จึงไม่มีผลอะไร
+- ลบรูปอวาตาร์เก่าทิ้งไม่ได้ (เปลี่ยนรูปแล้วไฟล์เดิมค้างใน bucket) และเปลี่ยน slug แล้ว
+  ลิงก์เดิมตาย ไม่มี redirect
 
 ---
 
@@ -76,7 +91,12 @@ pnpm dev:rt                 # apps/realtime → http://localhost:8080/healthz
 **ที่ตัด `-pooler` ออก** สำหรับ migration เพราะ transaction pooler ถือ session-level lock
 ที่ `prisma migrate` ต้องใช้ไม่ได้
 
-บัญชีเดโม่หลัง seed: `demo@donate-platform.local` / `demo1234`
+บัญชีหลัง seed:
+
+| บัญชี | รหัสผ่าน | ได้อะไร |
+|---|---|---|
+| `demo@donate-platform.local` | `demo1234` | สตรีมเมอร์ — dashboard, ตั้งค่า alert, overlay, โปรไฟล์ |
+| `admin@donate-platform.local` | `admin1234` | แอดมิน — `/dashboard/admin` **ไม่มีแถว Streamer** จึงเข้าจอสตรีมเมอร์ไม่ได้ |
 
 ### คำสั่งอื่น
 
@@ -103,11 +123,12 @@ pnpm --filter @dp/web test:int
 **เงินเป็น `Int` หน่วยสตางค์เสมอ** ไม่มี float ที่ไหนทั้งสิ้น และ `toSatang()`
 จะ throw ถ้าได้จำนวนที่ละเอียดกว่าหนึ่งสตางค์ แทนที่จะปัดทิ้งเงียบ ๆ
 
-**ข้อจำกัดที่รู้ตัว — realtime รันได้ instance เดียว** room registry และ ticket
-replay guard เก็บใน memory ของ process ถ้า scale เป็นสอง instance เมื่อไหร่
-overlay ที่ต่อ instance A จะไม่ได้รับ alert ที่ publish เข้า instance B
-ทางแก้คือ Redis pub/sub backplane และต้องย้าย **ทั้งสองอย่างพร้อมกัน**
-รายละเอียดอยู่ใน `DESIGN.md` 8.6
+**รูปอวาตาร์เป็นออปชัน** — ต้องมีตัวแปร `R2_*` ครบทั้งห้าตัวถึงจะเปิดใช้ ขาดตัวเดียวคือปิดทั้งฟีเจอร์
+โดยตั้งใจ: เดพลอยที่ไม่มี bucket ต้องรันได้ตามปกติ แค่ปุ่มอัปโหลดถูกปิดและ endpoint ตอบ 503
+บัคเก็ตต้องเปิด public read **และ** ตั้ง CORS ให้ allow `PUT` จาก origin ของเว็บ ไม่งั้นเบราว์เซอร์
+บล็อกตั้งแต่ preflight ตัวไฟล์วิ่งจากเบราว์เซอร์เข้า R2 ตรง ๆ ไม่ผ่าน serverless function
+
+(ข้อจำกัด instance เดียวของ realtime อยู่ในหัวข้อ Realtime pipeline ด้านล่าง)
 
 ---
 
@@ -139,7 +160,63 @@ event ที่ครบ 5 ครั้งจะหลุดออกจาก�
 — **สิ่งเดียวที่ถูกจำลองคือ "ใครเป็นคนบอกว่าจ่ายแล้ว"** ที่เหลือของจริงหมด
 เหตุผลที่ต้องจำลอง: **Omise ไม่มี public API สำหรับ "Mark as Successful"** มีแต่ปุ่มบน dashboard
 
-**ข้อจำกัดของ MockProvider บน serverless** — ledger ของ charge จำลองอยู่ใน memory ของ process
-ถ้า Vercel เอาคนละ instance มารับ `/api/demo/complete-donation` กับ `/api/webhooks/omise`
-ตัว retrieve จะหา charge ไม่เจอ ตอน dev (process เดียว) ไม่มีปัญหา ถ้าจะให้เดโม่บน production
-เชื่อถือได้ 100% ต้องย้าย ledger ลง DB — ยกไปตัดสินใจตอน M5
+**ledger ของ MockProvider อยู่ใน DB ไม่ใช่ใน memory** — ตอนแรกเก็บใน `Map` ของ process
+ซึ่งพังบน serverless: `/api/demo/complete-donation` กับ `/api/webhooks/omise` เป็นคนละ request
+Vercel จึงอาจให้คนละ instance มารับ แล้ว retrieve หา charge ไม่เจอ — ปุ่มเดโม่จะพังเป็นครั้ง ๆ
+ซึ่งเป็นอาการที่แย่ที่สุดสำหรับหน้าที่ HR กดดู ตอนนี้ย้ายมาเป็นตาราง `MockCharge` แล้ว และ
+`markPaid` เป็น `updateMany({ where: { providerRef, status: 'PENDING' } })` คำสั่งเดียว
+จึงกันกดซ้ำแบบ atomic ไปในตัว **ตรวจแล้วด้วยการรีสตาร์ต web server คั่นกลาง** ระหว่างสร้าง
+โดเนทกับจ่ายเงิน ไม่ใช่แค่ผ่าน unit test
+
+---
+
+## Realtime pipeline (M2a + M2b)
+
+```
+OBS เปิด  /overlay/{overlayToken}          ← token อายุยาว อยู่ใน URL ที่ streamer ก็อปไปวาง
+  └─ หน้าเว็บขอ GET /api/overlay/{token}/ticket
+        └─ JWT HS256 อายุ 60 วิ ใช้ได้ครั้งเดียว   ← rate limit ทำงาน "ก่อน" แตะ DB
+  └─ WS  ws://realtime/?ticket=...
+        ├─ verify offline   ปัก iss/aud/alg + clockTolerance   ← realtime ไม่แตะ Prisma เลย
+        ├─ jti replay guard  ตั๋วใบเดิมยิงซ้ำ → ปิด 4001
+        ├─ Origin allowlist + heartbeat 30 วิ
+        └─ เกิน 5 socket ต่อสตรีมเมอร์ → ปิด "ตัวที่มาใหม่" 4003 ตัวที่ออนแอร์อยู่ไม่โดนแตะ
+```
+
+**auth เป็นสองชั้นเพราะ WebSocket ส่ง header ไม่ได้** — เบราว์เซอร์ไม่ยอมให้ใส่ header ใน
+`new WebSocket()` token จึงต้องไปอยู่ใน URL ซึ่งหลุดลง log ของ proxy ได้ ตั๋ว 60 วิ
+ใช้ครั้งเดียวจึงเป็นตัวที่วิ่งใน URL แทน ส่วน token อายุยาวอยู่ในฝั่งเว็บที่คุยกันด้วย header ปกติ
+ผลพลอยได้: `apps/realtime` **ไม่ต้องรู้จัก DB เลย** ตรวจลายเซ็นด้วย secret ที่แชร์กันพอ
+
+**close code ที่ retry ไม่ได้มีแค่ 4002 กับ 4003** และตารางนี้เก็บ "ฝั่งที่ห้าม retry"
+ไม่ใช่ฝั่งที่ retry ได้ — เพราะโค้ดที่ไม่รู้จัก (เน็ตหลุด = 1006, proxy ตัดสาย) ต้องกลับมาต่อใหม่
+ถ้าไปไล่ลิสต์ฝั่ง retry จะลิสต์ไม่มีวันจบ **4003 เคยเป็น retryable แล้วเกิด livelock**:
+overlay 6 ตัวผลัดกันเตะกันออกไม่รู้จบ ทางแก้คือเปลี่ยนเป็น "ปฏิเสธตัวที่มาใหม่" แทน
+"เตะตัวที่เก่าที่สุดทิ้ง"
+
+**alert ที่หลุดตอน overlay ปิดอยู่ไม่หาย** — publish ที่ล้มเหลว **ห้าม** rollback สถานะ `PAID`
+(เงินเข้าแล้วจริง) โดเนทจึงค้างเป็น `alertedAt IS NULL` แล้ว overlay ดึงกลับด้วย `/missed`
+ตอนต่อสายได้ + ack กลับมา คิวนี้มี partial index รองรับโดยเฉพาะ
+
+**ข้อจำกัดที่รู้ตัว: รันได้ instance เดียว** room registry กับ replay guard อยู่ใน memory
+ถ้า scale เป็นสอง instance overlay ที่ต่อ A จะไม่ได้ alert ที่ publish เข้า B — ทางแก้คือ
+Redis pub/sub และต้องย้าย **ทั้งสองอย่างพร้อมกัน** (DESIGN.md 8.6)
+
+---
+
+## CI
+
+`.github/workflows/ci.yml` รัน **typecheck → test → build** ทั้งสาม workspace ทุก push เข้า
+`main` และทุก PR ไม่ต้องใช้ secret ใด ๆ
+
+สามขั้นที่ต้องมีก่อนหน้านั้น ไม่งั้นพังบน checkout สะอาด:
+- **`prisma generate` ซ้ำอีกรอบหลัง install** — postinstall ของ `@prisma/client` รัน *ทีหลัง*
+  ของ `@dp/web` แล้วสร้าง client ที่ไม่มี schema ทับ ทำให้ enum ที่ import อยู่หายทั้งหมด
+- **`next typegen`** — `typedRoutes: true` ทำให้ href ที่พิมพ์ไว้ typecheck ไม่ผ่านจนกว่าจะมี
+  route manifest ซึ่ง checkout ใหม่ยังไม่มี `.next/`
+- **env ปลอมตอน build** — `next build` ไม่เคยต่อ DB (ทุก route ที่แตะ DB เป็น dynamic)
+  แต่ `lib/env.ts` โยน error ถ้าตัวแปรหาย ค่าพวกนี้จึงแค่ต้อง *มี* ไม่ต้องใช้ได้จริง
+
+**integration test ไม่ได้อยู่ใน CI** — มันต้องใช้ `DIRECT_URL` จริง และถ้าไม่มีมันจะข้ามตัวเอง
+เงียบ ๆ ซึ่งแย่กว่าไม่มีเลย (CI เขียวทั้งที่ไม่ได้ทดสอบอะไร) รันเองด้วย
+`pnpm --filter @dp/web test:int` — ทุกเทสรันในทรานแซกชันที่ roll back เสมอ ไม่เขียนลง DB จริง
