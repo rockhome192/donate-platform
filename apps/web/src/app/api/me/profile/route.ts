@@ -2,7 +2,7 @@ import { profileSchema } from '@dp/shared'
 import { requireStreamer, sessionErrorResponse } from '@/lib/api-session'
 import { db, uniqueViolationTargets } from '@/lib/db'
 import { rateLimit } from '@/lib/rate-limit'
-import { storageConfig } from '@/lib/storage'
+import { ownsAvatarUrl, storageConfig } from '@/lib/storage'
 
 /**
  * PATCH /api/me/profile — the streamer's own public identity.
@@ -85,19 +85,24 @@ export async function PATCH(req: Request) {
   }
 
   /**
-   * An avatar may only ever point at this deployment's own bucket.
+   * An avatar may only ever be one THIS streamer uploaded.
    *
    * The column is a URL and the schema only checks that it parses, so without
    * this a streamer could PATCH in any address on the internet and every
    * visitor to their donate page would silently fetch it — handing a third
    * party the IP and user-agent of everyone who opens the page, and handing the
    * streamer a way to swap the image for anything at any time, after the fact.
-   * Uploading through /api/me/avatar/upload-url is the only supported path, and
-   * this is what makes it the only one.
+   *
+   * Checking the bucket alone was not enough either: avatar URLs are public and
+   * sit in the page source of every donate page, so "on our bucket" let anyone
+   * paste a rival's avatar in and impersonate them. ownsAvatarUrl also demands
+   * the key be under this caller's own namespace. Uploading through
+   * /api/me/avatar/upload-url is the only supported path, and this is what
+   * makes it the only one.
    */
   if (patch.avatarUrl) {
     const storage = storageConfig()
-    if (!storage || !patch.avatarUrl.startsWith(`${storage.publicBaseUrl}/`)) {
+    if (!storage || !ownsAvatarUrl(storage, session.streamerId, patch.avatarUrl)) {
       return Response.json(
         { error: 'รูปโปรไฟล์ต้องอัปโหลดผ่านระบบเท่านั้น', field: 'avatarUrl' },
         { status: 400, headers: NO_STORE },

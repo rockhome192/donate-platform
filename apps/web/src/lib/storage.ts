@@ -241,3 +241,46 @@ export function avatarKey(streamerId: string, contentType: string): string {
   const ext = EXTENSION[contentType] ?? 'bin'
   return `avatars/${streamerId}/${crypto.randomUUID()}.${ext}`
 }
+
+/** Exactly what avatarKey's last segment looks like, and nothing else. */
+const AVATAR_FILENAME =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg|webp)$/
+
+/**
+ * Is this URL one that THIS streamer's own upload produced?
+ *
+ * "On our bucket" is not enough. Every avatar URL is public and appears
+ * verbatim in the page source of its donate page, so checking only the bucket
+ * lets any streamer paste someone else's avatar into their own profile and wear
+ * that person's face on a page whose entire purpose is asking their audience
+ * for money. The key is namespaced by streamer id precisely so ownership is
+ * decidable here.
+ *
+ * Parsed rather than string-matched, because the URL is later handed to a
+ * browser and a browser resolves dot segments: `/avatars/<mine>/../<theirs>/x`
+ * passes any startsWith test and then fetches somebody else's object. `new URL`
+ * normalises those away before the comparison. The tail is matched against the
+ * exact shape avatarKey emits, so the only URLs accepted are ones this app
+ * minted — query strings and fragments included, since neither can appear on a
+ * key we generated and both are ways to make one string address another object.
+ */
+export function ownsAvatarUrl(
+  config: StorageConfig,
+  streamerId: string,
+  rawUrl: string,
+): boolean {
+  let url: URL
+  let base: URL
+  try {
+    url = new URL(rawUrl)
+    base = new URL(`${config.publicBaseUrl}/`)
+  } catch {
+    return false
+  }
+  if (url.origin !== base.origin) return false
+  if (url.search !== '' || url.hash !== '') return false
+
+  const prefix = `${base.pathname}avatars/${streamerId}/`
+  if (!url.pathname.startsWith(prefix)) return false
+  return AVATAR_FILENAME.test(url.pathname.slice(prefix.length))
+}

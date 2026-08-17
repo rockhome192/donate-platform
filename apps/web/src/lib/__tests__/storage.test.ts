@@ -5,6 +5,7 @@ import {
   UPLOAD_URL_TTL_SECONDS,
   avatarKey,
   deriveSigningKeyHex,
+  ownsAvatarUrl,
   presignUpload,
   storageConfig,
   type StorageConfig,
@@ -22,8 +23,9 @@ import {
  *
  * **A round trip against a real R2 bucket is the only thing that proves the
  * request is acceptable to the server**, and nothing below should be read as
- * saying otherwise. Until that has been run, the honest description of this
- * signer is "written to the spec and unit-tested", not "working".
+ * saying otherwise. That round trip has now been run (2026-08-17): ticket, PUT,
+ * byte-identical read back, and a 403 when the same ticket is re-sent with one
+ * extra byte. What no test here covers is a browser driving the form.
  */
 
 const CONFIG: StorageConfig = {
@@ -183,6 +185,68 @@ describe('storageConfig', () => {
     } finally {
       process.env = saved
     }
+  })
+})
+
+describe('ownsAvatarUrl', () => {
+  const MINE = 'str_mine'
+  const UUID = '3f2b1c0d-4e5f-4a6b-8c9d-0e1f2a3b4c5d'
+  const ok = `https://cdn.example.com/avatars/${MINE}/${UUID}.png`
+
+  it('accepts a URL this streamer uploaded', () => {
+    expect(ownsAvatarUrl(CONFIG, MINE, ok)).toBe(true)
+    expect(ownsAvatarUrl(CONFIG, MINE, ok.replace('.png', '.jpg'))).toBe(true)
+    expect(ownsAvatarUrl(CONFIG, MINE, ok.replace('.png', '.webp'))).toBe(true)
+  })
+
+  it('refuses another streamer’s avatar on the same bucket', () => {
+    // The whole point of the check. Every avatar URL is public and sits in the
+    // page source of its donate page, so this string is trivially obtainable.
+    const theirs = `https://cdn.example.com/avatars/str_theirs/${UUID}.png`
+    expect(ownsAvatarUrl(CONFIG, MINE, theirs)).toBe(false)
+  })
+
+  it('refuses a traversal back out of its own prefix', () => {
+    // A browser resolves the dot segments before fetching, so a startsWith
+    // check passes here and then serves somebody else's object.
+    const escaped = `https://cdn.example.com/avatars/${MINE}/../str_theirs/${UUID}.png`
+    expect(ownsAvatarUrl(CONFIG, MINE, escaped)).toBe(false)
+  })
+
+  it('refuses another host, including one that merely starts the same', () => {
+    expect(ownsAvatarUrl(CONFIG, MINE, `https://evil.example.com/avatars/${MINE}/${UUID}.png`)).toBe(false)
+    expect(ownsAvatarUrl(CONFIG, MINE, `https://cdn.example.com.evil.test/avatars/${MINE}/${UUID}.png`)).toBe(false)
+    expect(ownsAvatarUrl(CONFIG, MINE, `http://cdn.example.com/avatars/${MINE}/${UUID}.png`)).toBe(false)
+  })
+
+  it('refuses a query string or fragment', () => {
+    // Neither can occur on a key we generated, and both are ways to make one
+    // string address a different object.
+    expect(ownsAvatarUrl(CONFIG, MINE, `${ok}?x=1`)).toBe(false)
+    expect(ownsAvatarUrl(CONFIG, MINE, `${ok}#f`)).toBe(false)
+  })
+
+  it('refuses anything that is not the shape avatarKey emits', () => {
+    expect(ownsAvatarUrl(CONFIG, MINE, `https://cdn.example.com/avatars/${MINE}/`)).toBe(false)
+    expect(ownsAvatarUrl(CONFIG, MINE, `https://cdn.example.com/avatars/${MINE}/logo.svg`)).toBe(false)
+    expect(ownsAvatarUrl(CONFIG, MINE, `https://cdn.example.com/avatars/${MINE}/${UUID}.png/x.png`)).toBe(false)
+    expect(ownsAvatarUrl(CONFIG, MINE, 'not a url')).toBe(false)
+    expect(ownsAvatarUrl(CONFIG, MINE, '')).toBe(false)
+  })
+
+  it('accepts what avatarKey actually produces, for every content type', () => {
+    // Binds the two functions together: a change to the key format that this
+    // check does not follow would silently reject every new upload.
+    for (const type of ['image/png', 'image/jpeg', 'image/webp']) {
+      const url = `${CONFIG.publicBaseUrl}/${avatarKey(MINE, type)}`
+      expect(ownsAvatarUrl(CONFIG, MINE, url), type).toBe(true)
+    }
+  })
+
+  it('works when the public base carries a path of its own', () => {
+    const nested: StorageConfig = { ...CONFIG, publicBaseUrl: 'https://cdn.example.com/media' }
+    expect(ownsAvatarUrl(nested, MINE, `https://cdn.example.com/media/avatars/${MINE}/${UUID}.png`)).toBe(true)
+    expect(ownsAvatarUrl(nested, MINE, ok)).toBe(false)
   })
 })
 
