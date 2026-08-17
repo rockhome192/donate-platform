@@ -39,8 +39,12 @@ export default function DashboardLoading() {
               have, but it does have to occupy the height, or the panels below
               it jump when the real chart arrives. */}
           <ol className="flex h-44 items-end gap-1.5">
-            {['h-1/3', 'h-1/2', 'h-1/4', 'h-2/3', 'h-2/5', 'h-3/5', 'h-1/3'].map((h) => (
-              <li key={h} className="flex h-full min-w-0 flex-1 flex-col justify-end gap-1.5">
+            {/* Keyed by index, not by the height class: this is a fixed list of
+                seven bars that never reorders, and two of the seven share a
+                height — so the class is not unique and React rightly complains
+                about it. */}
+            {['h-1/3', 'h-1/2', 'h-1/4', 'h-2/3', 'h-2/5', 'h-3/5', 'h-1/3'].map((h, i) => (
+              <li key={i} className="flex h-full min-w-0 flex-1 flex-col justify-end gap-1.5">
                 <Skeleton className={`w-full rounded-chip ${h}`} />
               </li>
             ))}
