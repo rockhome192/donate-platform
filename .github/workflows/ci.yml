@@ -14,6 +14,10 @@ jobs:
   check:
     name: typecheck / test / build
     runs-on: ubuntu-latest
+    # The default is six hours. Nothing here takes five minutes, so a step that
+    # hangs is a bug, not a slow day -- fail it fast instead of burning the
+    # month's CI minutes on one wedged run.
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
