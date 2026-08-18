@@ -23,21 +23,25 @@
 
 ---
 
-## 0. สร้างค่าลับก่อน 4 ตัว
+## 0. สร้างค่าลับก่อน 5 ตัว
 
-รันสี่รอบ เก็บใส่ที่ปลอดภัย — **สามตัวแรกต้องเท่ากันเป๊ะทั้งสองฝั่ง** ไม่งั้น overlay ต่อไม่ติด
-และ `/internal/publish` โดน 401
+ยังไม่ต้องเปิดเว็บไซต์ไหนทั้งนั้น ข้อนี้แค่ **สุ่มค่ามาจดไว้** เพราะสามตัวแรกต้องกรอก
+**ค่าเดียวกันเป๊ะทั้ง Railway และ Vercel** ถ้าไปสุ่มตอนกรอกทีละฝั่งจะได้คนละค่า
+แล้ว overlay ต่อไม่ติด / `/internal/publish` โดน 401 โดยไม่มี error บอกว่าเพราะอะไร
+
+รันคำสั่งข้างล่างห้ารอบ (ได้คนละค่าทุกรอบ) แล้วเก็บไว้ในที่ที่ไม่ใช่ในรีโป
 
 ```powershell
 $b = New-Object byte[] 32; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
 ```
 
-| ตัวแปร | ใช้ทำอะไร | ต้องตรงกัน |
+| ตัวแปร | ใช้ทำอะไร | ต้องกรอกที่ไหน |
 |---|---|---|
-| `REALTIME_JWT_SECRET` | เซ็นตั๋ว 60 วิของ overlay | web + realtime |
-| `REALTIME_INTERNAL_SECRET` | HMAC ของ `/internal/publish`, `/internal/disconnect` | web + realtime |
-| `CRON_SECRET` | Bearer ของ `/api/cron/reconcile` | web + realtime |
-| `MOCK_WEBHOOK_SECRET` | ลายเซ็นของ webhook จำลอง | web อย่างเดียว |
+| `REALTIME_JWT_SECRET` | เซ็นตั๋ว 60 วิของ overlay | **ทั้งสองที่ ค่าเดียวกัน** |
+| `REALTIME_INTERNAL_SECRET` | HMAC ของ `/internal/publish`, `/internal/disconnect` | **ทั้งสองที่ ค่าเดียวกัน** |
+| `CRON_SECRET` | Bearer ของ `/api/cron/reconcile` | **ทั้งสองที่ ค่าเดียวกัน** |
+| `MOCK_WEBHOOK_SECRET` | ลายเซ็นของ webhook จำลอง | Vercel อย่างเดียว |
+| `NEXTAUTH_SECRET` | เซ็น session cookie | Vercel อย่างเดียว |
 
 **ใช้ค่าใหม่ ไม่ใช่ค่าจาก `apps/web/.env`** — ค่าใน dev เคยผ่านตา log และสคริปต์ทดสอบมาแล้ว
 โดยเฉพาะ `MOCK_WEBHOOK_SECRET`: ใครรู้ค่านี้ยิงโดเนทให้เป็น `PAID` ได้เองทั้งที่ไม่ได้จ่าย
@@ -149,7 +153,7 @@ Cloudflare dashboard → R2 → bucket `donate` → **Settings → CORS Policy**
 ```json
 [
   {
-    "AllowedOrigins": ["http://localhost:3000", "https://<vercel-domain>"],
+    "AllowedOrigins": ["http://localhost:3000", "https://donate-platform-web.vercel.app"],
     "AllowedMethods": ["PUT"],
     "AllowedHeaders": ["content-type"],
     "MaxAgeSeconds": 3600
