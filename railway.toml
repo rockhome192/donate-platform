@@ -1,0 +1,39 @@
+# Railway deploys apps/realtime — the long-lived WebSocket service.
+#
+# Root Directory in the Railway service settings must stay EMPTY (repo root).
+# apps/realtime depends on @dp/shared through the pnpm workspace, and the
+# lockfile lives at the root; pointing Railway at apps/realtime would hand the
+# builder a directory with no pnpm-workspace.yaml and no lockfile.
+#
+# Railpack reads `packageManager` from the root package.json through Corepack,
+# so the build runs the same pnpm 11.17.0 as local, and `engines.node` (>=22)
+# picks the runtime. If a build ever resolves the wrong Node, RAILPACK_NODE_VERSION
+# overrides it.
+#
+# PORT is injected by Railway and read by src/server.ts — do NOT set it as a
+# variable, or the proxy and the process can disagree about which port is live.
+
+[build]
+builder = "RAILPACK"
+buildCommand = "pnpm --filter @dp/realtime build"
+# Everything else in this repo (apps/web) deploys to Vercel and cannot change
+# how this service behaves, so a push that only touches the web app should not
+# restart every overlay socket.
+watchPatterns = [
+  "apps/realtime/**",
+  "packages/shared/**",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "railway.toml",
+]
+
+[deploy]
+startCommand = "pnpm --filter @dp/realtime start"
+# /healthz answers without touching anything external — this service has no DB.
+healthcheckPath = "/healthz"
+healthcheckTimeout = 30
+# ON_FAILURE, not ALWAYS: src/server.ts calls process.exit(1) on a missing
+# REALTIME_* secret, and restarting forever on a misconfiguration only buries
+# the one log line that says which variable is missing.
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

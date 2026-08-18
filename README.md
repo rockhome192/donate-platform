@@ -225,6 +225,27 @@ Redis pub/sub และต้องย้าย **ทั้งสองอย่
 
 ---
 
+## Deploy
+
+`apps/web` → **Vercel** (Root Directory = `apps/web`), `apps/realtime` → **Railway**
+(Root Directory ว่าง เพราะ workspace + lockfile อยู่ที่ root, ตั้งค่าไว้แล้วใน `railway.toml`)
+ขั้นตอนทีละข้อ ตารางตัวแปรครบทุกตัว และของที่พังเงียบถ้าลืม อยู่ใน [`DEPLOY.md`](./DEPLOY.md)
+
+สองอย่างที่ต้องรู้ก่อนกดอะไร:
+- **ต้อง deploy Railway ก่อน** `NEXT_PUBLIC_REALTIME_WS_URL` ถูก inline ตอน build
+  แก้ตัวแปรทีหลังโดยไม่ build ใหม่จึงไม่มีผล และต้องเป็น `wss://` เพราะเบราว์เซอร์
+  ไม่ยอมให้หน้า https เปิด `ws://`
+- **Vercel ต้องเปิด Corepack** (`ENABLE_EXPERIMENTAL_COREPACK=1`) — Vercel รองรับ pnpm ถึง 10
+  แต่รีโปนี้ปักไว้ที่ 11.17.0 และ `pnpm-workspace.yaml` ใช้คีย์ `allowBuilds` ของ pnpm 11
+  (pnpm 10 อ่านชื่อ `onlyBuiltDependencies`) ถ้าไม่ตรงกัน postinstall ของ Prisma ถูกบล็อก
+
+**`@dp/shared` ต้องถูกบันเดิลเข้าไปใน `apps/realtime`** (`tsup.config.ts` → `noExternal`)
+มันเป็น TypeScript ดิบ (`main` ชี้ที่ `src/index.ts` — ฝั่งเว็บใช้ `transpilePackages` จัดการ)
+tsup ตั้ง dependency ทุกตัวเป็น external ตามค่า default บันเดิลจึง `import '@dp/shared'` ทิ้งไว้
+แล้ว `node dist/server.js` ตายตั้งแต่บูตด้วย ERR_MODULE_NOT_FOUND — Node โหลดไฟล์ `.ts`
+ที่ import แบบไม่มีนามสกุลไม่ได้ และไม่ยอม strip types ใน `node_modules` เลย
+dev ไม่เคยเจอเพราะรันด้วย `tsx` ส่วน `start` มีแต่ Railway ที่ใช้
+
 ## CI
 
 `.github/workflows/ci.yml` รัน **typecheck → test → build** ทั้งสาม workspace ทุก push เข้า
