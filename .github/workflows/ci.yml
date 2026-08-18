@@ -69,3 +69,22 @@ jobs:
           CRON_SECRET: ci-build-only
           MOCK_WEBHOOK_SECRET: ci-build-only
         run: pnpm build
+
+      # A bundle that builds is not a bundle that runs. @dp/shared ships raw
+      # TypeScript, and while tsup kept it external the realtime service died at
+      # boot with ERR_MODULE_NOT_FOUND -- typecheck, tests and build all stayed
+      # green, because `start` is a command only Railway ever runs. Booting the
+      # real artifact is the only check that would have caught it.
+      - name: Boot the realtime bundle
+        env:
+          REALTIME_JWT_SECRET: ci-boot-only
+          REALTIME_INTERNAL_SECRET: ci-boot-only
+          PORT: '8080'
+        run: |
+          node apps/realtime/dist/server.js &
+          for _ in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/healthz; then exit 0; fi
+            sleep 0.5
+          done
+          echo "realtime never answered /healthz"
+          exit 1
