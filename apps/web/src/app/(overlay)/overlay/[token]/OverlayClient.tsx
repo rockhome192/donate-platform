@@ -114,17 +114,86 @@ export function OverlayClient({
     el: null,
   })
 
-  const playSound = useCallback(() => {
+  /**
+   * The voice line, when the donation has one. A separate element from the
+   * chime because they play one after the other and a single element cannot
+   * hold two sources.
+   */
+  const voiceRef = useRef<HTMLAudioElement | null>(null)
+
+  /**
+   * Which alert the audio currently belongs to.
+   *
+   * The chime's `ended` handler starts the voice, and by the time it fires the
+   * queue may have moved on — a second donation arriving during a 1.3s chime is
+   * not rare on a busy stream. Without this the overlay would announce donation
+   * A over donation B's alert.
+   */
+  const audioGenRef = useRef(0)
+
+  /**
+   * The 'ended' handler currently attached to the chime, so it can be taken off
+   * again.
+   *
+   * `{ once: true }` alone is not enough. It fires on the NEXT 'ended', and an
+   * alert that starts while the chime is still playing gets a second listener
+   * on the same element — restarting a chime with `currentTime = 0` does not
+   * reject the pending play() promise, so the catch-based cleanup never runs
+   * for the interrupted one. The gen counter keeps the wrong voice line from
+   * being heard; this keeps the listeners from piling up on a source that is
+   * open for the length of a stream. Reachable today with a custom soundUrl
+   * longer than durationMs, and by default the moment sounds are uploadable.
+   */
+  const chimeEndRef = useRef<(() => void) | null>(null)
+
+  const playAlertAudio = useCallback((alert: AlertPayload) => {
     const sound = soundRef.current
-    if (!sound.url || sound.volume <= 0) return
+    const gen = ++audioGenRef.current
+
+    // Whatever the previous alert was still saying stops here. Two voices over
+    // each other is worse than one cut short, and the alert on screen has
+    // already been replaced.
+    voiceRef.current?.pause()
+
+    const startVoice = () => {
+      if (chimeEndRef.current === startVoice) chimeEndRef.current = null
+      if (gen !== audioGenRef.current || !alert.ttsUrl) return
+      const el = (voiceRef.current ??= new Audio())
+      // Assigning src aborts whatever this element was playing, which is the
+      // stop-the-old-line behaviour above made durable.
+      el.src = alert.ttsUrl
+      el.volume = Math.min(1, Math.max(0, sound.volume / 100))
+      void el.play().catch(() => {})
+    }
+
+    const chimeWanted = Boolean(sound.url) && sound.volume > 0
+    if (!chimeWanted) {
+      startVoice()
+      return
+    }
 
     if (!sound.el) {
-      sound.el = new Audio(sound.url)
+      sound.el = new Audio(sound.url!)
       sound.el.preload = 'auto'
     }
-    sound.el.volume = Math.min(1, Math.max(0, sound.volume / 100))
-    sound.el.currentTime = 0
-    void sound.el.play().catch(() => {})
+    const chime = sound.el
+    chime.volume = Math.min(1, Math.max(0, sound.volume / 100))
+    chime.currentTime = 0
+
+    // Exactly one 'ended' handler on this element at any moment.
+    if (chimeEndRef.current) chime.removeEventListener('ended', chimeEndRef.current)
+    chimeEndRef.current = startVoice
+    chime.addEventListener('ended', startVoice, { once: true })
+
+    void chime.play().catch(() => {
+      // A tab refuses to play before it has been clicked, and then no 'ended'
+      // ever arrives. The voice is attempted anyway: it will be refused too,
+      // and the alternative is silence in OBS if the chime file alone is what
+      // failed to load.
+      chime.removeEventListener('ended', startVoice)
+      if (chimeEndRef.current === startVoice) chimeEndRef.current = null
+      startVoice()
+    })
   }, [])
 
   // Fetched and decoded while the overlay is idle rather than at the moment the
@@ -181,8 +250,8 @@ export function OverlayClient({
     if (!next) return
     playingRef.current = true
     setCurrent({ alert: next, leaving: false })
-    playSound()
-  }, [playSound])
+    playAlertAudio(next)
+  }, [playAlertAudio])
 
   const loadMissed = useCallback(async () => {
     try {

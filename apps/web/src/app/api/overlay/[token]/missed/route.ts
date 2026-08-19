@@ -72,7 +72,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     // viewer watching the recording sees the same sequence the chat did.
     orderBy: { createdAt: 'asc' },
     take: MISSED_ALERTS_LIMIT,
-    select: { id: true, donorName: true, message: true, amount: true, createdAt: true },
+    select: {
+      id: true,
+      donorName: true,
+      message: true,
+      amount: true,
+      createdAt: true,
+      ttsUrl: true,
+    },
   })
 
   const alerts: AlertPayload[] = donations.map((d) => ({
@@ -81,6 +88,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
     message: d.message,
     amount: d.amount,
     createdAt: d.createdAt.toISOString(),
+    // Synthesised once, when the donation settled. A replay costs nothing.
+    ttsUrl: d.ttsUrl,
   }))
 
   return Response.json({ alerts }, { headers: NO_STORE })

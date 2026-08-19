@@ -57,6 +57,10 @@ export async function POST() {
 
   const alert: AlertPayload = {
     id: `${TEST_ALERT_ID_PREFIX}${randomUUID()}`,
+    // No voice line on a test alert, deliberately. This button exists to be
+    // pressed repeatedly while pointing OBS at the right URL, and every press
+    // would otherwise spend paid characters saying a sentence nobody needs.
+    ttsUrl: null,
     ...TEST_ALERT_SAMPLE,
     createdAt: new Date().toISOString(),
   }

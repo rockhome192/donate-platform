@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { TTS_MAX_CHARS } from '@/lib/tts/text'
 import {
   DEFAULT_ALERT_SOUND,
   SATANG_PER_BAHT,
@@ -15,11 +16,12 @@ import { renderAlertTemplate } from '@/lib/overlay/queue'
  * Alert settings — DESIGN.md 4.2.
  *
  * Every control here drives a column the system actually reads: `template` and
- * `durationMs` in the overlay, `minAlertAmount` in the webhook processor, and
- * now `soundUrl`/`soundVolume` in the overlay's audio. imageUrl, ttsEnabled and
- * profanityFilter are still unread (Phase 2, DESIGN.md 2.2) and still have no
- * control — a switch that quietly does nothing is the sort of thing a demo is
- * judged on, and the sort of thing DESIGN.md 0 rules out.
+ * `durationMs` in the overlay, `minAlertAmount` in the webhook processor,
+ * `soundUrl`/`soundVolume` in the overlay's audio, and `ttsEnabled` in the
+ * settle path that synthesises the voice line. imageUrl and profanityFilter are
+ * still unread (Phase 2, DESIGN.md 2.2) and still have no control — a switch
+ * that quietly does nothing is the sort of thing a demo is judged on, and the
+ * sort of thing DESIGN.md 0 rules out.
  *
  * The preview is the real renderer (`renderAlertTemplate`, unit tested and
  * shared with the overlay) over the same sample the test-alert button fires,
@@ -30,7 +32,14 @@ type Props = {
   initial: Pick<
     AlertSettingPayload,
     'template' | 'durationMs' | 'minAlertAmount' | 'soundUrl' | 'soundVolume'
-  >
+  > & { ttsEnabled: boolean }
+  /**
+   * Whether this deployment has a speech key and a bucket. Decided on the
+   * server; without both, the switch is disabled rather than absent, because
+   * "this build cannot do it" and "you have it turned off" are different
+   * answers to the same question.
+   */
+  ttsAvailable: boolean
 }
 
 const TEMPLATE_MAX = 120
@@ -39,7 +48,7 @@ const TEMPLATE_MAX = 120
 const DURATION_MIN_S = 2
 const DURATION_MAX_S = 20
 
-export function AlertSettingForm({ initial }: Props) {
+export function AlertSettingForm({ initial, ttsAvailable }: Props) {
   const [template, setTemplate] = useState(initial.template)
   const [durationS, setDurationS] = useState(String(initial.durationMs / 1_000))
   const [minAlertBaht, setMinAlertBaht] = useState(String(initial.minAlertAmount / SATANG_PER_BAHT))
@@ -48,6 +57,7 @@ export function AlertSettingForm({ initial }: Props) {
   // not a way to lose a sound you chose.
   const [soundOn, setSoundOn] = useState(initial.soundUrl !== null)
   const [soundVolume, setSoundVolume] = useState(initial.soundVolume)
+  const [ttsEnabled, setTtsEnabled] = useState(initial.ttsEnabled)
   const previewRef = useRef<HTMLAudioElement | null>(null)
 
   const [saving, setSaving] = useState(false)
@@ -61,7 +71,8 @@ export function AlertSettingForm({ initial }: Props) {
     Number(durationS) * 1_000 !== initial.durationMs ||
     Number(minAlertBaht) * SATANG_PER_BAHT !== initial.minAlertAmount ||
     soundUrl !== initial.soundUrl ||
-    soundVolume !== initial.soundVolume
+    soundVolume !== initial.soundVolume ||
+    ttsEnabled !== initial.ttsEnabled
 
   /**
    * Plays the sound at the volume currently on the slider, here in the
@@ -99,7 +110,14 @@ export function AlertSettingForm({ initial }: Props) {
       const res = await fetch('/api/me/alert-setting', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ template, durationMs, minAlertAmount, soundUrl, soundVolume }),
+        body: JSON.stringify({
+          template,
+          durationMs,
+          minAlertAmount,
+          soundUrl,
+          soundVolume,
+          ttsEnabled,
+        }),
       })
       const body = (await res.json().catch(() => null)) as {
         overlayNotified?: boolean
@@ -224,6 +242,7 @@ export function AlertSettingForm({ initial }: Props) {
           <div className={soundOn ? 'mt-3' : 'mt-3 opacity-45'}>
             <label htmlFor="soundVolume" className="mb-1.5 block text-label text-muted">
               ระดับเสียง <span className="font-numeric tabular-nums text-ink">{soundVolume}%</span>
+              <span className="ml-1 text-faint">(ใช้กับเสียงพูด TTS ด้วย)</span>
             </label>
             <div className="flex items-center gap-3">
               <input
@@ -254,6 +273,32 @@ export function AlertSettingForm({ initial }: Props) {
           </div>
         </div>
 
+        <div className="border-t border-line pt-5">
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={ttsEnabled && ttsAvailable}
+              disabled={!ttsAvailable}
+              onChange={(e) => setTtsEnabled(e.target.checked)}
+              className="size-4 accent-accent"
+            />
+            <span className={`text-label ${ttsAvailable ? 'text-ink' : 'text-faint'}`}>
+              อ่านข้อความโดเนทออกเสียง (TTS)
+            </span>
+          </label>
+          <p className="mt-2 text-meta text-faint">
+            {ttsAvailable ? (
+              <>
+                อ่านเฉพาะโดเนทที่<span className="text-muted">จ่ายสำเร็จแล้ว</span>และ
+                <span className="text-muted">มีข้อความ</span> ยาวเกิน {TTS_MAX_CHARS} ตัวอักษรจะถูกตัด
+                — เสียงพูดจะดังต่อจากเสียงเตือนโดยใช้ระดับเสียงด้านบน ถ้าตั้งไว้ 0% จะไม่สร้างเสียงพูดเลย
+              </>
+            ) : (
+              <>ยังใช้ไม่ได้บนดีพลอยนี้ — ต้องตั้งค่า AZURE_SPEECH_KEY / AZURE_SPEECH_REGION และ bucket ก่อน</>
+            )}
+          </p>
+        </div>
+
         {error && <ErrorNote>{error}</ErrorNote>}
         {notice && (
           <p role="status" className="text-label text-muted">
@@ -273,7 +318,7 @@ export function AlertSettingForm({ initial }: Props) {
         </div>
 
         <p className="border-t border-line pt-4 text-meta text-faint">
-          รูปภาพและ TTS อยู่ใน Phase 2 — ยังไม่มีช่องให้ตั้งค่าที่นี่ เพราะระบบยังไม่ได้อ่านค่าพวกนั้น
+          รูปภาพประกอบ alert อยู่ใน Phase 2 — ยังไม่มีช่องให้ตั้งค่าที่นี่ เพราะระบบยังไม่ได้อ่านค่านั้น
         </p>
       </form>
     </Panel>

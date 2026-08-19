@@ -110,6 +110,9 @@ model Donation {
 
   donorName  String          @db.VarChar(40)
   message    String          @default("") @db.VarChar(200)
+  /// Public URL of the synthesised voice line, set once when the donation
+  /// settles. Null means there is none, which is the common case.
+  ttsUrl     String?
   /// satang
   amount     Int
   currency   String          @default("THB")

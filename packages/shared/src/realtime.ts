@@ -12,6 +12,15 @@ export type AlertPayload = {
   /** satang */
   amount: number
   createdAt: string
+  /**
+   * A spoken version of this donation, or null.
+   *
+   * Synthesised once when the donation settled and stored, so a replay through
+   * /missed plays the same file rather than paying to say the same sentence
+   * again. Null is the ordinary case: TTS off, nothing configured, no message
+   * worth reading, or the call failed — none of which may stop the alert.
+   */
+  ttsUrl: string | null
 }
 
 export type AlertSettingPayload = {

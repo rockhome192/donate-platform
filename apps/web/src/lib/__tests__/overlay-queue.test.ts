@@ -9,6 +9,7 @@ function alert(id: string, over: Partial<AlertPayload> = {}): AlertPayload {
     message: 'สู้ ๆ',
     amount: 15000,
     createdAt: '2026-08-04T10:00:00.000Z',
+    ttsUrl: null,
     ...over,
   }
 }

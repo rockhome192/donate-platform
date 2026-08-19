@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth'
 import { Panel, TechLabel } from '@/components/ui'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
+import { isTtsConfigured } from '@/lib/tts'
 import { AlertSettingForm } from './AlertSettingForm'
 
 /**
@@ -29,6 +30,7 @@ const DEFAULTS = {
   minAlertAmount: 2_000,
   soundUrl: null,
   soundVolume: 70,
+  ttsEnabled: false,
 }
 
 export default async function AlertsPage() {
@@ -53,6 +55,7 @@ export default async function AlertsPage() {
       minAlertAmount: true,
       soundUrl: true,
       soundVolume: true,
+      ttsEnabled: true,
     },
   })
 
@@ -67,7 +70,14 @@ export default async function AlertsPage() {
       </header>
 
       <div className="mt-6">
-        <AlertSettingForm initial={setting ?? DEFAULTS} />
+        {/*
+          Whether the deployment can speak at all is a server fact — it needs an
+          Azure key and a bucket — so it is decided here rather than guessed in
+          the browser. With neither, the switch renders disabled and says why,
+          which is the honest version of a control that would otherwise save
+          happily and never make a sound.
+        */}
+        <AlertSettingForm initial={setting ?? DEFAULTS} ttsAvailable={isTtsConfigured()} />
       </div>
     </>
   )

@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * that must NOT fire twice.
  */
 
-const { dbMock, providerMock, publishMock } = vi.hoisted(() => ({
+const { dbMock, providerMock, publishMock, ttsMock } = vi.hoisted(() => ({
   dbMock: {
     webhookEvent: {
       findUnique: vi.fn(),
@@ -26,11 +26,13 @@ const { dbMock, providerMock, publishMock } = vi.hoisted(() => ({
   },
   providerMock: { name: 'mock', retrieveCharge: vi.fn() },
   publishMock: vi.fn(),
+  ttsMock: vi.fn(),
 }))
 
 vi.mock('@/lib/db', () => ({ db: dbMock, isUniqueViolation: () => false }))
 vi.mock('@/lib/payments', () => ({ getPaymentProvider: () => providerMock }))
 vi.mock('@/lib/realtime/publish', () => ({ publishToOverlay: publishMock }))
+vi.mock('@/lib/tts', () => ({ synthesizeDonationSpeech: ttsMock }))
 
 import { extractChargeRef, MAX_ATTEMPTS, processWebhookEvent } from '../webhooks/process'
 
@@ -71,7 +73,12 @@ beforeEach(() => {
   dbMock.donation.findFirst.mockResolvedValue(aDonation())
   dbMock.donation.updateMany.mockResolvedValue({ count: 1 })
   dbMock.donation.update.mockResolvedValue({})
-  dbMock.alertSetting.findUnique.mockResolvedValue({ minAlertAmount: 2_000 })
+  dbMock.alertSetting.findUnique.mockResolvedValue({
+    minAlertAmount: 2_000,
+    ttsEnabled: true,
+    soundVolume: 70,
+  })
+  ttsMock.mockResolvedValue(null)
   providerMock.retrieveCharge.mockResolvedValue({
     status: 'successful',
     amount: 5_000,
@@ -256,6 +263,102 @@ describe('processWebhookEvent — alerting', () => {
       where: { id: EVENT_ID },
       data: { processedAt: expect.any(Date), lastError: null },
     })
+  })
+})
+
+describe('processWebhookEvent — the voice line', () => {
+  const VOICE = 'https://pub.example.com/tts/str_1/don_1.mp3'
+
+  /**
+   * The money guarantee, asserted rather than reasoned about: Azure is billed
+   * per character, and every path into this function that is NOT the single
+   * winner of the guarded update must reach the provider zero times.
+   */
+  it('synthesises once, stores the url, and sends it with the alert', async () => {
+    ttsMock.mockResolvedValue(VOICE)
+
+    await processWebhookEvent(EVENT_ID)
+
+    expect(ttsMock).toHaveBeenCalledTimes(1)
+    expect(ttsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        donationId: 'don_1',
+        streamerId: 'str_1',
+        message: 'สู้ ๆ',
+        enabled: true,
+        volume: 70,
+      }),
+    )
+    expect(dbMock.donation.update).toHaveBeenCalledWith({
+      where: { id: 'don_1' },
+      data: { ttsUrl: VOICE },
+    })
+    expect(publishMock.mock.calls[0]![1]).toMatchObject({ data: { ttsUrl: VOICE } })
+  })
+
+  it('spends nothing on a donation somebody else already settled', async () => {
+    // count 0 = a duplicate delivery, or the reconciler crossing the live
+    // webhook. Both re-enter this function; neither may pay again.
+    dbMock.donation.updateMany.mockResolvedValue({ count: 0 })
+
+    await processWebhookEvent(EVENT_ID)
+
+    expect(ttsMock).not.toHaveBeenCalled()
+    expect(publishMock).not.toHaveBeenCalled()
+  })
+
+  it('spends nothing on a donation under the alert threshold', async () => {
+    dbMock.donation.findFirst.mockResolvedValue(aDonation({ amount: 1_000 }))
+    providerMock.retrieveCharge.mockResolvedValue({
+      status: 'successful',
+      amount: 1_000,
+      paidAt: new Date('2026-08-01T09:05:00.000Z'),
+    })
+
+    await processWebhookEvent(EVENT_ID)
+
+    expect(ttsMock).not.toHaveBeenCalled()
+  })
+
+  it('passes the streamer switch through rather than deciding for them', async () => {
+    dbMock.alertSetting.findUnique.mockResolvedValue({
+      minAlertAmount: 2_000,
+      ttsEnabled: false,
+      soundVolume: 70,
+    })
+
+    await processWebhookEvent(EVENT_ID)
+
+    expect(ttsMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }))
+  })
+
+  it('writes nothing when there is no voice line', async () => {
+    ttsMock.mockResolvedValue(null)
+
+    await processWebhookEvent(EVENT_ID)
+
+    expect(dbMock.donation.update).not.toHaveBeenCalled()
+    expect(publishMock.mock.calls[0]![1]).toMatchObject({ data: { ttsUrl: null } })
+  })
+
+  /**
+   * The regression this file exists to prevent from coming back: persisting the
+   * URL is the one write here that only makes a REPLAY nicer, and an unguarded
+   * throw from it used to escape to processWebhookEvent, turn the outcome into
+   * 'retry' and skip the publish entirely — costing the live alert over a
+   * cosmetic write, on a donation that could then never be re-alerted because
+   * the guarded update had already been won.
+   */
+  it('still publishes the alert when persisting the url fails', async () => {
+    ttsMock.mockResolvedValue(VOICE)
+    dbMock.donation.update.mockRejectedValue(new Error('connection terminated'))
+
+    const outcome = await processWebhookEvent(EVENT_ID)
+
+    expect(outcome).toMatchObject({ result: 'processed' })
+    expect(publishMock).toHaveBeenCalledTimes(1)
+    // In memory, so the live alert speaks even though the row does not know.
+    expect(publishMock.mock.calls[0]![1]).toMatchObject({ data: { ttsUrl: VOICE } })
   })
 })
 
