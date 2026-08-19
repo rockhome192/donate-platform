@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { getServerSession } from 'next-auth'
 import { formatBaht } from '@dp/shared'
 import { OverlayStage } from '@/components/OverlayStage'
 import {
@@ -8,6 +9,7 @@ import {
   Wordmark,
   buttonClass,
 } from '@/components/ui'
+import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
 
 /**
@@ -63,16 +65,40 @@ const STEPS = [
 ] as const
 
 export default async function HomePage() {
-  /**
-   * The ticker's contents. Public already — every one of these was read aloud
-   * on a stream by the alert this page is advertising.
-   */
-  const recent = await db.donation.findMany({
-    where: { status: 'PAID' },
-    orderBy: { paidAt: 'desc' },
-    take: TICKER_LIMIT,
-    select: { id: true, donorName: true, amount: true, message: true },
-  })
+  /*
+    This page is what a signed-in streamer sees if they click the wordmark, and
+    for a while it answered them with "เข้าสู่ระบบ" — the one door back into the
+    console, labelled as though they had never come through it. Following it
+    landed on a login form, which reads as the session having been dropped.
+
+    So the header reads the session and shows who is signed in instead. The
+    page was already `force-dynamic` for the ticker below, so this costs one
+    more query on a request that was never being cached anyway.
+  */
+  const session = await getServerSession(authOptions)
+
+  const [recent, streamer] = await Promise.all([
+    /**
+     * The ticker's contents. Public already — every one of these was read aloud
+     * on a stream by the alert this page is advertising.
+     */
+    db.donation.findMany({
+      where: { status: 'PAID' },
+      orderBy: { paidAt: 'desc' },
+      take: TICKER_LIMIT,
+      select: { id: true, donorName: true, amount: true, message: true },
+    }),
+    session?.user?.streamerId
+      ? db.streamer.findUnique({
+          where: { id: session.user.streamerId },
+          select: { displayName: true, avatarUrl: true },
+        })
+      : null,
+  ])
+
+  // An admin has a session and no Streamer row, so the name falls back to the
+  // email rather than rendering an empty chip.
+  const signedInAs = session?.user ? (streamer?.displayName ?? session.user.email ?? 'บัญชีของฉัน') : null
 
   return (
     <>
@@ -84,9 +110,36 @@ export default async function HomePage() {
             <Link href="/demo" className={buttonClass('secondary', 'sm')}>
               ดูหน้าโดเนท
             </Link>
-            <Link href="/login" className={buttonClass('primary', 'sm')}>
-              เข้าสู่ระบบ
-            </Link>
+            {signedInAs ? (
+              <Link
+                href="/dashboard"
+                className="flex items-center gap-2 rounded-chip border border-line-strong bg-surface py-1 pr-3 pl-1 text-label text-ink hover:border-accent"
+              >
+                {streamer?.avatarUrl ? (
+                  // Plain img, as everywhere else an R2 avatar is shown: the
+                  // optimizer would add a hop for a 40px circle that is already
+                  // cached at the edge.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={streamer.avatarUrl}
+                    alt=""
+                    className="size-7 shrink-0 rounded-full object-cover"
+                  />
+                ) : (
+                  <span
+                    aria-hidden
+                    className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-meta"
+                  >
+                    {signedInAs.slice(0, 1)}
+                  </span>
+                )}
+                <span className="max-w-32 truncate">{signedInAs}</span>
+              </Link>
+            ) : (
+              <Link href="/login" className={buttonClass('primary', 'sm')}>
+                เข้าสู่ระบบ
+              </Link>
+            )}
           </nav>
         </header>
 
@@ -112,10 +165,10 @@ export default async function HomePage() {
 
             <div className="mt-7 flex flex-wrap justify-center gap-3">
               <Link
-                href="/register"
+                href={signedInAs ? '/dashboard' : '/register'}
                 className={buttonClass('primary', 'lg', 'shadow-[5px_5px_0_rgba(255,59,78,0.22)]')}
               >
-                เริ่มใช้งานฟรี
+                {signedInAs ? 'ไปที่แดชบอร์ด' : 'เริ่มใช้งานฟรี'}
               </Link>
               <Link href="/demo" className={buttonClass('secondary', 'lg')}>
                 ลองส่งโดเนท →
@@ -125,12 +178,18 @@ export default async function HomePage() {
             {/* Kept beside the signup button rather than replaced by it: a
                 recruiter opening this link wants to see the console in ten
                 seconds, not fill in a form first. */}
-            <p className="mt-3 text-meta text-faint">
-              หรือ{' '}
-              <Link href="/login" className="text-muted underline underline-offset-4 hover:text-ink">
-                เข้าสู่ระบบด้วยบัญชีเดโม่
-              </Link>
-            </p>
+            {/* Nothing to offer somebody who is already inside. */}
+            {!signedInAs && (
+              <p className="mt-3 text-meta text-faint">
+                หรือ{' '}
+                <Link
+                  href="/login"
+                  className="text-muted underline underline-offset-4 hover:text-ink"
+                >
+                  เข้าสู่ระบบด้วยบัญชีเดโม่
+                </Link>
+              </p>
+            )}
 
             <p className="mt-6 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-meta text-faint">
               ใช้กับ
