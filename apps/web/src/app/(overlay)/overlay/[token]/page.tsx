@@ -38,7 +38,9 @@ export default async function OverlayPage({ params }: Params) {
     select: {
       id: true,
       isSuspended: true,
-      alertSetting: { select: { template: true, durationMs: true } },
+      alertSetting: {
+        select: { template: true, durationMs: true, soundUrl: true, soundVolume: true },
+      },
     },
   })
 
@@ -62,6 +64,8 @@ export default async function OverlayPage({ params }: Params) {
       // Prisma defaults; the settings page creates the row on first save.
       initialTemplate={streamer.alertSetting?.template ?? '{name} โดเนท {amount} บาท'}
       initialDurationMs={streamer.alertSetting?.durationMs ?? 6000}
+      initialSoundUrl={streamer.alertSetting?.soundUrl ?? null}
+      initialSoundVolume={streamer.alertSetting?.soundVolume ?? 70}
     />
   )
 }

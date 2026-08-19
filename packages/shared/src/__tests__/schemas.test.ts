@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ACK_MAX_IDS } from '../realtime.js'
+import { ACK_MAX_IDS, DEFAULT_ALERT_SOUND } from '../realtime.js'
 import {
   RESERVED_SLUGS,
   ackAlertsSchema,
@@ -138,8 +138,29 @@ describe('alertSettingSchema, partial', () => {
     ['an empty template', { template: '   ' }],
     ['a template past 120 chars', { template: 'x'.repeat(121) }],
     ['a negative alert threshold', { minAlertAmount: -1 }],
-    ['a sound that is not a URL', { soundUrl: 'not-a-url' }],
+    ['a sound that is neither a path nor a URL', { soundUrl: 'not-a-url' }],
+    ['a sound on http rather than https', { soundUrl: 'http://evil.example/x.mp3' }],
+    ['a sound on another origin disguised as a path', { soundUrl: '//evil.example/x.mp3' }],
+    ['a sound using the backslash trick', { soundUrl: '/\\evil.example/x.mp3' }],
+    ['a volume above 100', { soundVolume: 101 }],
+    ['a negative volume', { soundVolume: -1 }],
+    ['a fractional volume', { soundVolume: 70.5 }],
   ])('still rejects %s', (_label, body) => {
     expect(partial.safeParse(body).success).toBe(false)
+  })
+
+  /**
+   * Two shapes are legitimate in this one column and only one of them is a
+   * URL: the sound bundled with the app is served from the overlay's own
+   * origin, and an uploaded one will be an absolute R2 link.
+   */
+  it('accepts both the bundled sound and an https URL', () => {
+    expect(partial.safeParse({ soundUrl: DEFAULT_ALERT_SOUND }).success).toBe(true)
+    expect(partial.safeParse({ soundUrl: 'https://cdn.example/alert.mp3' }).success).toBe(true)
+  })
+
+  it('accepts the ends of the volume range', () => {
+    expect(partial.safeParse({ soundVolume: 0 }).success).toBe(true)
+    expect(partial.safeParse({ soundVolume: 100 }).success).toBe(true)
   })
 })

@@ -36,6 +36,7 @@ const PAYLOAD_SELECT = {
   template: true,
   durationMs: true,
   soundUrl: true,
+  soundVolume: true,
   imageUrl: true,
   minAlertAmount: true,
 } as const

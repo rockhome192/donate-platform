@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { isSameSitePath } from '@/lib/safe-path'
+import { isSameSitePath } from '../safe-path'
 
 /**
- * The login callbackUrl guard. Everything here is an attacker-controlled query
- * parameter, so the interesting cases are the ones that LOOK like a local path.
+ * The login callbackUrl guard, and now the alert-sound guard too. Everything
+ * it sees is attacker-controlled — a query parameter on /login, a JSON body on
+ * PATCH /api/me/alert-setting — so the interesting cases are the ones that LOOK
+ * like a local path.
  */
 describe('isSameSitePath', () => {
   it('accepts ordinary local paths', () => {

@@ -5,4 +5,5 @@
 export * from './money'
 export * from './realtime'
 export * from './backoff'
+export * from './safe-path'
 export * from './schemas'

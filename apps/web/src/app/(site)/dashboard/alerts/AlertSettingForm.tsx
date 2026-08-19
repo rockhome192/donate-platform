@@ -1,20 +1,25 @@
 'use client'
 
-import { useState } from 'react'
-import { SATANG_PER_BAHT, TEST_ALERT_SAMPLE, formatBaht, type AlertSettingPayload } from '@dp/shared'
+import { useRef, useState } from 'react'
+import {
+  DEFAULT_ALERT_SOUND,
+  SATANG_PER_BAHT,
+  TEST_ALERT_SAMPLE,
+  formatBaht,
+  type AlertSettingPayload,
+} from '@dp/shared'
 import { ErrorNote, Panel, PanelHeader, TechLabel, buttonClass } from '@/components/ui'
 import { renderAlertTemplate } from '@/lib/overlay/queue'
 
 /**
  * Alert settings — DESIGN.md 4.2.
  *
- * Three fields, and only three, because those are the three the system
- * actually reads: `template` and `durationMs` in the overlay, `minAlertAmount`
- * in the webhook processor. AlertSetting also carries soundUrl, imageUrl,
- * ttsEnabled and profanityFilter, and none of them is consumed anywhere yet
- * (sound/image and TTS are Phase 2, DESIGN.md 2.2). Rendering a control for a
- * column nothing reads would be a switch that quietly does nothing — the sort
- * of thing a demo is judged on, and the sort of thing DESIGN.md 0 rules out.
+ * Every control here drives a column the system actually reads: `template` and
+ * `durationMs` in the overlay, `minAlertAmount` in the webhook processor, and
+ * now `soundUrl`/`soundVolume` in the overlay's audio. imageUrl, ttsEnabled and
+ * profanityFilter are still unread (Phase 2, DESIGN.md 2.2) and still have no
+ * control — a switch that quietly does nothing is the sort of thing a demo is
+ * judged on, and the sort of thing DESIGN.md 0 rules out.
  *
  * The preview is the real renderer (`renderAlertTemplate`, unit tested and
  * shared with the overlay) over the same sample the test-alert button fires,
@@ -22,7 +27,10 @@ import { renderAlertTemplate } from '@/lib/overlay/queue'
  */
 
 type Props = {
-  initial: Pick<AlertSettingPayload, 'template' | 'durationMs' | 'minAlertAmount'>
+  initial: Pick<
+    AlertSettingPayload,
+    'template' | 'durationMs' | 'minAlertAmount' | 'soundUrl' | 'soundVolume'
+  >
 }
 
 const TEMPLATE_MAX = 120
@@ -35,15 +43,40 @@ export function AlertSettingForm({ initial }: Props) {
   const [template, setTemplate] = useState(initial.template)
   const [durationS, setDurationS] = useState(String(initial.durationMs / 1_000))
   const [minAlertBaht, setMinAlertBaht] = useState(String(initial.minAlertAmount / SATANG_PER_BAHT))
+  // null in the column is the whole of "off" — see alertSettingSchema. The
+  // checkbox writes the bundled path back, so turning it off and on again is
+  // not a way to lose a sound you chose.
+  const [soundOn, setSoundOn] = useState(initial.soundUrl !== null)
+  const [soundVolume, setSoundVolume] = useState(initial.soundVolume)
+  const previewRef = useRef<HTMLAudioElement | null>(null)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
+  const soundUrl = soundOn ? (initial.soundUrl ?? DEFAULT_ALERT_SOUND) : null
+
   const dirty =
     template !== initial.template ||
     Number(durationS) * 1_000 !== initial.durationMs ||
-    Number(minAlertBaht) * SATANG_PER_BAHT !== initial.minAlertAmount
+    Number(minAlertBaht) * SATANG_PER_BAHT !== initial.minAlertAmount ||
+    soundUrl !== initial.soundUrl ||
+    soundVolume !== initial.soundVolume
+
+  /**
+   * Plays the sound at the volume currently on the slider, here in the
+   * dashboard, so the streamer can set the level without going to OBS and
+   * spending a real alert on it. A click is a user gesture, so autoplay policy
+   * never enters into it on this page — unlike the overlay, which is why the
+   * overlay leans on OBS having autoplay enabled in its browser source.
+   */
+  function preview() {
+    const el = (previewRef.current ??= new Audio())
+    el.src = soundUrl ?? DEFAULT_ALERT_SOUND
+    el.volume = soundVolume / 100
+    el.currentTime = 0
+    void el.play().catch(() => setError('เบราว์เซอร์เล่นเสียงไม่ได้'))
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault()
@@ -66,7 +99,7 @@ export function AlertSettingForm({ initial }: Props) {
       const res = await fetch('/api/me/alert-setting', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ template, durationMs, minAlertAmount }),
+        body: JSON.stringify({ template, durationMs, minAlertAmount, soundUrl, soundVolume }),
       })
       const body = (await res.json().catch(() => null)) as {
         overlayNotified?: boolean
@@ -177,6 +210,50 @@ export function AlertSettingForm({ initial }: Props) {
           </div>
         </div>
 
+        <div className="border-t border-line pt-5">
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={soundOn}
+              onChange={(e) => setSoundOn(e.target.checked)}
+              className="size-4 accent-accent"
+            />
+            <span className="text-label text-ink">เปิดเสียงตอน alert เด้ง</span>
+          </label>
+
+          <div className={soundOn ? 'mt-3' : 'mt-3 opacity-45'}>
+            <label htmlFor="soundVolume" className="mb-1.5 block text-label text-muted">
+              ระดับเสียง <span className="font-numeric tabular-nums text-ink">{soundVolume}%</span>
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                id="soundVolume"
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                disabled={!soundOn}
+                value={soundVolume}
+                onChange={(e) => setSoundVolume(Number(e.target.value))}
+                className="h-1.5 min-w-0 flex-1 accent-accent"
+              />
+              <button
+                type="button"
+                onClick={preview}
+                disabled={!soundOn}
+                className={buttonClass('secondary', 'sm')}
+              >
+                ลองฟัง
+              </button>
+            </div>
+            <p className="mt-1.5 text-meta text-faint">
+              เสียงจะดังจาก Browser Source ใน OBS — อย่าลืมติ๊ก{' '}
+              <span className="text-muted">Control audio via OBS</span> ที่ตัว source
+              ถ้าอยากคุมระดับเสียงในมิกเซอร์ของ OBS เอง
+            </p>
+          </div>
+        </div>
+
         {error && <ErrorNote>{error}</ErrorNote>}
         {notice && (
           <p role="status" className="text-label text-muted">
@@ -196,7 +273,7 @@ export function AlertSettingForm({ initial }: Props) {
         </div>
 
         <p className="border-t border-line pt-4 text-meta text-faint">
-          เสียง รูปภาพ และ TTS อยู่ใน Phase 2 — ยังไม่มีช่องให้ตั้งค่าที่นี่ เพราะระบบยังไม่ได้อ่านค่าพวกนั้น
+          รูปภาพและ TTS อยู่ใน Phase 2 — ยังไม่มีช่องให้ตั้งค่าที่นี่ เพราะระบบยังไม่ได้อ่านค่าพวกนั้น
         </p>
       </form>
     </Panel>

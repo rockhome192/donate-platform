@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { SYSTEM_MAX_SATANG, SYSTEM_MIN_SATANG } from './money'
 import { ACK_MAX_IDS } from './realtime'
+import { isSameSitePath } from './safe-path'
 
 /**
  * Slugs a streamer may never own, because a static route in apps/web already
@@ -223,10 +224,37 @@ export const profileSchema = z.object({
 
 export type ProfileInput = z.infer<typeof profileSchema>
 
+/**
+ * The alert sound, as a path or as a URL.
+ *
+ * Two things legitimately live in this column and only one is a URL: the sound
+ * that ships with the app (`/sounds/alert.mp3`, served from the same origin as
+ * the overlay) and, later, one a streamer uploads to R2. `z.url()` alone would
+ * reject the first, and dropping the check to a plain string would let the
+ * overlay be pointed at any host on the internet by a request that never went
+ * near the upload endpoint.
+ *
+ * null is off. There is no separate boolean: "no sound" and "no sound file"
+ * are the same state, and a switch that can disagree with the field it guards
+ * is a bug waiting for a form to introduce it.
+ */
+export const alertSoundSchema = z
+  .string()
+  .max(500)
+  .refine((v) => isSameSitePath(v) || v.startsWith('https://'), {
+    message: 'ต้องเป็นไฟล์ในระบบหรือลิงก์ https',
+  })
+
 export const alertSettingSchema = z.object({
   template: z.string().trim().min(1).max(120),
   durationMs: z.number().int().min(2_000).max(20_000),
-  soundUrl: z.string().url().max(500).nullable(),
+  soundUrl: alertSoundSchema.nullable(),
+  /**
+   * Percent, not a 0-1 gain. It is a slider a person reads, it round-trips
+   * through JSON, and an integer cannot drift the way 0.7000000000000001 can.
+   * The overlay divides by 100 at the one place it reaches the audio element.
+   */
+  soundVolume: z.number().int().min(0).max(100),
   imageUrl: z.string().url().max(500).nullable(),
   ttsEnabled: z.boolean(),
   minAlertAmount: z.number().int().min(0).max(SYSTEM_MAX_SATANG),

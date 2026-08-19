@@ -93,6 +93,9 @@ model AlertSetting {
   template        String   @default("{name} โดเนท {amount} บาท") @db.VarChar(120)
   durationMs      Int      @default(6000)
   soundUrl        String?
+  /// 0-100. Default 70 rather than 100: an alert at full scale over a live mic
+  /// is the complaint every streamer has about every alert service.
+  soundVolume     Int      @default(70)
   imageUrl        String?
   ttsEnabled      Boolean  @default(false)
   /// satang — below this the donation is recorded but no alert fires

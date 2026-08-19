@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
 import { getServerSession } from 'next-auth'
+import { isSameSitePath } from '@dp/shared'
 import { AmbientBackdrop, Wordmark } from '@/components/ui'
 import { authOptions } from '@/lib/auth'
-import { isSameSitePath } from '@/lib/safe-path'
 import { LoginForm } from './LoginForm'
 
 /**

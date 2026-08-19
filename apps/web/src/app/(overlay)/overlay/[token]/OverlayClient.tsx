@@ -48,6 +48,10 @@ type Props = {
    */
   initialTemplate: string
   initialDurationMs: number
+  /** null = silent. Same-origin path for the bundled sound, or an https URL. */
+  initialSoundUrl: string | null
+  /** 0-100, divided by 100 exactly once, here. */
+  initialSoundVolume: number
 }
 
 type Status = 'connecting' | 'live' | 'reconnecting' | 'stopped'
@@ -61,6 +65,8 @@ export function OverlayClient({
   wsUrl,
   initialTemplate,
   initialDurationMs,
+  initialSoundUrl,
+  initialSoundVolume,
 }: Props) {
   const [status, setStatus] = useState<Status>('connecting')
   const [stopReason, setStopReason] = useState<StopReason | null>(null)
@@ -86,6 +92,50 @@ export function OverlayClient({
    * streamer would expect from saving a setting mid-stream.
    */
   const durationRef = useRef(initialDurationMs)
+
+  /**
+   * The alert sound, held the same way and for the same reason as durationRef.
+   *
+   * One element, reused: constructing an Audio per alert asks the Browser
+   * Source to fetch and decode the file again every time, and the first play
+   * after that is late by however long that takes — on an alert whose whole
+   * point is to land with the animation.
+   *
+   * `play()` returning a rejected promise is normal and is swallowed. A plain
+   * browser tab refuses to play audio before the page has been clicked, which
+   * is exactly what happens when the streamer opens the overlay URL to check
+   * it; OBS's browser source has autoplay enabled, which is where it matters.
+   * Logging it would put a red error in a console nobody reads for a case that
+   * is not a fault.
+   */
+  const soundRef = useRef<{ url: string | null; volume: number; el: HTMLAudioElement | null }>({
+    url: initialSoundUrl,
+    volume: initialSoundVolume,
+    el: null,
+  })
+
+  const playSound = useCallback(() => {
+    const sound = soundRef.current
+    if (!sound.url || sound.volume <= 0) return
+
+    if (!sound.el) {
+      sound.el = new Audio(sound.url)
+      sound.el.preload = 'auto'
+    }
+    sound.el.volume = Math.min(1, Math.max(0, sound.volume / 100))
+    sound.el.currentTime = 0
+    void sound.el.play().catch(() => {})
+  }, [])
+
+  // Fetched and decoded while the overlay is idle rather than at the moment the
+  // first donation arrives.
+  useEffect(() => {
+    const sound = soundRef.current
+    if (!sound.url || sound.el) return
+    sound.el = new Audio(sound.url)
+    sound.el.preload = 'auto'
+    sound.el.load()
+  }, [])
 
   useEffect(() => {
     setDebug(new URLSearchParams(window.location.search).get('debug') === '1')
@@ -131,7 +181,8 @@ export function OverlayClient({
     if (!next) return
     playingRef.current = true
     setCurrent({ alert: next, leaving: false })
-  }, [])
+    playSound()
+  }, [playSound])
 
   const loadMissed = useCallback(async () => {
     try {
@@ -255,6 +306,17 @@ export function OverlayClient({
             // should not have to go into OBS and refresh it (DESIGN.md 9).
             setTemplate(message.data.template)
             durationRef.current = message.data.durationMs
+            {
+              // A changed file has to drop the element holding the old one;
+              // a changed volume must not, or every slider nudge re-downloads
+              // the sound.
+              const sound = soundRef.current
+              if (sound.url !== message.data.soundUrl) {
+                sound.url = message.data.soundUrl
+                sound.el = null
+              }
+              sound.volume = message.data.soundVolume
+            }
           } else if (message.type === 'pong') {
             if (pongTimer) clearTimeout(pongTimer)
           }

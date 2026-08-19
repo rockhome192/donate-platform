@@ -23,7 +23,13 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 
 /** Mirrors the Prisma defaults, for a streamer whose AlertSetting row does not exist yet. */
-const DEFAULTS = { template: '{name} โดเนท {amount} บาท', durationMs: 6_000, minAlertAmount: 2_000 }
+const DEFAULTS = {
+  template: '{name} โดเนท {amount} บาท',
+  durationMs: 6_000,
+  minAlertAmount: 2_000,
+  soundUrl: null,
+  soundVolume: 70,
+}
 
 export default async function AlertsPage() {
   const session = await getServerSession(authOptions)
@@ -41,7 +47,13 @@ export default async function AlertsPage() {
 
   const setting = await db.alertSetting.findUnique({
     where: { streamerId },
-    select: { template: true, durationMs: true, minAlertAmount: true },
+    select: {
+      template: true,
+      durationMs: true,
+      minAlertAmount: true,
+      soundUrl: true,
+      soundVolume: true,
+    },
   })
 
   return (

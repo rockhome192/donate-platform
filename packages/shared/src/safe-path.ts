@@ -7,11 +7,10 @@
  * `//evil.com`. Letting the URL parser decide removes the whole family of
  * those tricks instead of blocking them one at a time.
  *
- * Lives in lib/ rather than beside the login form because both sides of the
- * login route need it now: the form, which is a client component, and the page
- * itself, which is a server component and cannot call a function imported from
- * a `'use client'` module — that import yields a client reference, not the
- * function.
+ * Two callers, which is why it lives in shared rather than beside either of
+ * them: the login route uses it on `callbackUrl`, and `alertSettingSchema`
+ * uses it on `soundUrl`, where a bundled sound is a path and an uploaded one
+ * is an absolute URL.
  */
 export function isSameSitePath(candidate: string): boolean {
   if (!candidate.startsWith('/')) return false

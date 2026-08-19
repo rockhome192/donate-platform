@@ -17,10 +17,24 @@ export type AlertPayload = {
 export type AlertSettingPayload = {
   template: string
   durationMs: number
+  /** null = silent. A same-origin path (the bundled sound) or an https URL. */
   soundUrl: string | null
+  /** 0-100. Percent, because it is a slider a person reads — see alertSettingSchema. */
+  soundVolume: number
   imageUrl: string | null
   minAlertAmount: number
 }
+
+/**
+ * The sound that ships with the app, so a streamer gets audio without having
+ * to find and host a file first.
+ *
+ * A path, not a URL: it is served by the same origin as the overlay, which
+ * means it cannot break when the deployment domain changes and it costs no
+ * extra DNS/TLS handshake in a Browser Source that may be opening it seconds
+ * before the alert needs to be heard.
+ */
+export const DEFAULT_ALERT_SOUND = '/sounds/alert.mp3'
 
 /** server -> client */
 export type ServerMessage =
