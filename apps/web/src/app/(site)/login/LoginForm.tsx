@@ -5,27 +5,10 @@ import type { Route } from 'next'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { signIn } from 'next-auth/react'
 import { ErrorNote, buttonClass } from '@/components/ui'
+import { isSameSitePath } from '@/lib/safe-path'
 
 const DEMO_EMAIL = 'demo@donate-platform.local'
 const DEMO_PASSWORD = 'demo1234'
-
-/**
- * Resolve the candidate against a throwaway origin and check it stayed there.
- *
- * A `startsWith('/') && !startsWith('//')` pair looks equivalent and is not:
- * browsers normalise backslashes to slashes for http(s), so `/\evil.com`
- * survives that check and then resolves as the protocol-relative
- * `//evil.com`. Letting the URL parser decide removes the whole family of
- * those tricks instead of blocking them one at a time.
- */
-export function isSameSitePath(candidate: string): boolean {
-  if (!candidate.startsWith('/')) return false
-  try {
-    return new URL(candidate, 'https://donatr.invalid').origin === 'https://donatr.invalid'
-  } catch {
-    return false
-  }
-}
 
 export function LoginForm() {
   const router = useRouter()

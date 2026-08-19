@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSameSitePath } from '@/app/(site)/login/LoginForm'
+import { isSameSitePath } from '@/lib/safe-path'
 
 /**
  * The login callbackUrl guard. Everything here is an attacker-controlled query

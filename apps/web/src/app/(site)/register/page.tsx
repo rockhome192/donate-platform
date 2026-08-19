@@ -1,6 +1,9 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { getServerSession } from 'next-auth'
 import { AmbientBackdrop, Wordmark } from '@/components/ui'
+import { authOptions } from '@/lib/auth'
 import { RegisterForm } from './RegisterForm'
 
 /**
@@ -11,7 +14,16 @@ import { RegisterForm } from './RegisterForm'
 
 export const metadata: Metadata = { title: 'สมัครใช้งาน — DONATR (demo)' }
 
-export default function RegisterPage() {
+/** Reads the session cookie, so it can never be prerendered. */
+export const dynamic = 'force-dynamic'
+
+export default async function RegisterPage() {
+  // Same reason as /login: an account that is already signed in is being asked
+  // to create a second one. No callbackUrl here — nothing links to /register
+  // with one, and signing up is never the completion of a deep link.
+  const session = await getServerSession(authOptions)
+  if (session?.user) redirect('/dashboard')
+
   return (
     <>
       <AmbientBackdrop />

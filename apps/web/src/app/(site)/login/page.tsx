@@ -1,7 +1,12 @@
 import type { Metadata } from 'next'
+import type { Route } from 'next'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { Suspense } from 'react'
+import { getServerSession } from 'next-auth'
 import { AmbientBackdrop, Wordmark } from '@/components/ui'
+import { authOptions } from '@/lib/auth'
+import { isSameSitePath } from '@/lib/safe-path'
 import { LoginForm } from './LoginForm'
 
 /**
@@ -15,7 +20,36 @@ import { LoginForm } from './LoginForm'
 
 export const metadata: Metadata = { title: 'เข้าสู่ระบบ — DONATR (demo)' }
 
-export default function LoginPage() {
+/** Reads the session cookie, so it can never be prerendered. */
+export const dynamic = 'force-dynamic'
+
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> }
+
+export default async function LoginPage({ searchParams }: Props) {
+  /*
+    Somebody who is already signed in does not need this page, and showing it
+    to them is the app asking a question it already knows the answer to.
+
+    It is reachable while signed in by the ordinary route, not a strange one:
+    the landing page is static and its only call to action says "เข้าสู่ระบบ"
+    forever, so anyone who goes back to the front page and looks for the way
+    into their console lands here and is asked to log in a second time.
+    Bouncing them makes that button mean "take me in" whether or not a session
+    exists, and leaves the landing page static.
+
+    callbackUrl is honoured so a deep link that bounced through here
+    (/dashboard → /login?callbackUrl=/dashboard) still finishes where it was
+    going, and it goes through the same same-site check the form uses — an
+    attacker-supplied absolute URL here would turn a visit to /login into an
+    open redirect for anyone with a session.
+  */
+  const session = await getServerSession(authOptions)
+  if (session?.user) {
+    const raw = (await searchParams).callbackUrl
+    const candidate = Array.isArray(raw) ? raw[0] : raw
+    redirect((candidate && isSameSitePath(candidate) ? candidate : '/dashboard') as Route)
+  }
+
   return (
     <>
       <AmbientBackdrop />
