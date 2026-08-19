@@ -230,6 +230,41 @@ select:focus-visible {
   animation: alert-out 0.38s ease-in both;
 }
 
+/* The same entrance for an alert that is CENTRED in its browser source, where
+   there is no edge to slide in from — a sideways slide out of nothing reads as
+   a layout glitch there, so it rises and settles instead. Kept separate rather
+   than replacing the pair above: the landing page's sample alert really is
+   anchored left inside its panel, and the slide is right for it. */
+@keyframes alert-in-center {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes alert-out-center {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+}
+
+@utility animate-alert-in-center {
+  animation: alert-in-center 0.42s cubic-bezier(0.16, 0.84, 0.44, 1) both;
+}
+
+@utility animate-alert-out-center {
+  animation: alert-out-center 0.38s ease-in both;
+}
+
 /**
  * OBS renders a transparent browser source as a checkerboard, and every
  * streamer recognises it instantly. Using it here is not decoration — the

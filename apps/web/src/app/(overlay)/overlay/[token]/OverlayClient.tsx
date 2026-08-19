@@ -334,15 +334,24 @@ export function OverlayClient({
 
   return (
     <div className="relative h-dvh w-full overflow-hidden">
+      {/*
+        Centred on both axes, not anchored to a corner. The streamer already
+        chose where the alert appears when they sized and placed the Browser
+        Source in OBS; the page's job is to fill the box they drew. A 4%/6%
+        inset made sense when the source was assumed to be the full 1920x1080
+        canvas, and looked like a mistake on every source smaller than that.
+      */}
       {current && (
-        <AlertCard
-          size="overlay"
-          headline={renderAlertTemplate(template, current.alert)}
-          message={current.alert.message || undefined}
-          className={`absolute top-[6%] left-[4%] w-[min(34rem,84%)] ${
-            current.leaving ? 'animate-alert-out' : 'animate-alert-in'
-          }`}
-        />
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <AlertCard
+            size="overlay"
+            headline={renderAlertTemplate(template, current.alert)}
+            message={current.alert.message || undefined}
+            className={`w-[min(34rem,84%)] ${
+              current.leaving ? 'animate-alert-out-center' : 'animate-alert-in-center'
+            }`}
+          />
+        </div>
       )}
 
       {/*

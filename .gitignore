@@ -29,3 +29,8 @@ Thumbs.db
 *.log
 *.zip
 .vercel
+
+# local OBS recordings — a demo clip is a portfolio artifact, not source, and a
+# 6MB mp4 in a repo that may go public is a download nobody asked for
+test-donate-obs/
+*.mp4
