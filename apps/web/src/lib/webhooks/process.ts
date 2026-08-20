@@ -1,8 +1,7 @@
 import type { PaymentProvider as PaymentProviderEnum } from '@prisma/client'
 import { db } from '@/lib/db'
+import { settleDonation } from '@/lib/donations/settle'
 import { getPaymentProvider } from '@/lib/payments'
-import { publishToOverlay } from '@/lib/realtime/publish'
-import { synthesizeDonationSpeech } from '@/lib/tts'
 
 /**
  * The second half of the webhook: what actually happens once we have said 200.
@@ -173,99 +172,29 @@ async function handleEvent(
     }
   }
 
-  // Read the threshold BEFORE the update, so the decision can ride along in the
-  // same statement. DESIGN.md 6.2.1 requires alertedAt to be set in the same
-  // transaction as PAID for a below-threshold donation, and the reason is a
-  // crash exactly between two separate writes: the row would be PAID with
-  // alertedAt NULL, the retry's guarded update would match zero rows and skip
-  // the alert branch entirely, and that donation would then sit in /missed
-  // forever — played on the overlay despite being under the streamer's
-  // minAlertAmount, and never leaving the partial index.
-  const setting = await db.alertSetting.findUnique({
-    where: { streamerId: donation.streamerId },
-    select: { minAlertAmount: true, ttsEnabled: true, soundVolume: true },
-  })
-  const belowThreshold = donation.amount < (setting?.minAlertAmount ?? 0)
-
-  const { count } = await db.donation.updateMany({
-    where: { id: donation.id, status: 'PENDING' },
-    data: {
-      status: 'PAID',
-      paidAt: charge.paidAt ?? new Date(),
-      // "alerting is finished", not "it was shown" (DESIGN.md 8.4). A donation
-      // under the threshold is finished the moment it is paid; one over it
-      // stays NULL until the overlay acks having played it.
-      ...(belowThreshold ? { alertedAt: new Date() } : {}),
-    },
-  })
-
-  if (count === 0) {
-    // Somebody else already moved it — a duplicate delivery, or the reconciler
-    // and the live webhook crossing. The money is recorded exactly once and the
-    // alert belongs to whoever won, so this path publishes nothing.
-    return { result: 'processed', detail: 'donation already settled — no alert' }
-  }
-
-  if (belowThreshold) {
-    return { result: 'processed', detail: 'donation marked PAID — below alert threshold' }
-  }
-
-  /*
-    The voice line, if this streamer wants one.
-
-    It happens HERE — after the guarded update, in the branch that only the
-    winner reaches — and that placement is the whole cost control. Duplicate
-    deliveries and the reconciler both re-enter this function; synthesising
-    before the update would pay Azure again for every one of them. The URL is
-    stored on the row so a replay through /missed says the same sentence
-    without a second call.
-
-    Failures return null rather than throwing, so a donation is never left
-    unannounced because a speech API was down.
-  */
-  const ttsUrl = await synthesizeDonationSpeech({
-    donationId: donation.id,
-    streamerId: donation.streamerId,
-    donorName: donation.donorName,
-    message: donation.message,
-    amount: donation.amount,
-    enabled: setting?.ttsEnabled ?? false,
-    // The overlay plays the voice line at the alert-sound volume, so a
-    // streamer sitting at 0% would be billed for a sentence that is played
-    // into a muted element. Nothing to hear, nothing to synthesise.
-    volume: setting?.soundVolume ?? 0,
-  })
-
-  if (ttsUrl) {
-    // Not part of the settle update: that one is a race the row must win
-    // exactly once, and adding a slow network call before it would widen the
-    // window it is there to close.
-    //
-    // `.catch` for the same reason every other non-critical write in this file
-    // has one, and this is the worst place to have learned it: an unguarded
-    // throw here escapes to processWebhookEvent, turns the outcome into
-    // 'retry', and skips the publish below — and the retry then loses the
-    // guarded update (already PAID) and returns "no alert". The donation would
-    // wait for the overlay's next reconnect to appear at all, over a failure
-    // in the one write that only makes a REPLAY nicer.
-    await db.donation
-      .update({ where: { id: donation.id }, data: { ttsUrl } })
-      .catch((e) => console.error(`[tts] could not persist url for ${donation.id}:`, e))
-  }
-
-  // Best-effort by design: a publish failure must not undo PAID (DESIGN.md
-  // 8.3.1). The overlay pulls this donation from /missed on its next connect.
-  await publishToOverlay(donation.streamerId, {
-    type: 'donation.alert',
-    data: {
+  const outcome = await settleDonation(
+    {
       id: donation.id,
+      streamerId: donation.streamerId,
       donorName: donation.donorName,
       message: donation.message,
       amount: donation.amount,
-      createdAt: donation.createdAt.toISOString(),
-      ttsUrl,
+      createdAt: donation.createdAt,
     },
-  })
+    charge.paidAt ?? new Date(),
+  )
 
-  return { result: 'processed', detail: 'donation marked PAID' }
+  if (!outcome.won) {
+    // Somebody else already moved it — a duplicate delivery, or the reconciler
+    // and the live webhook crossing. The money is recorded exactly once and the
+    // alert belongs to whoever won, so nothing was published.
+    return { result: 'processed', detail: 'donation already settled — no alert' }
+  }
+
+  return {
+    result: 'processed',
+    detail: outcome.alerted
+      ? 'donation marked PAID'
+      : 'donation marked PAID — below alert threshold',
+  }
 }
