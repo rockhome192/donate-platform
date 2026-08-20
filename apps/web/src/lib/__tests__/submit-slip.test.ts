@@ -145,6 +145,20 @@ describe('layer 1 — what the upstream says, and what it does not', () => {
     expect(settleMock).not.toHaveBeenCalled()
   })
 
+  it.each([
+    // The upstream's own dedupe firing means what ours means: 409, not a 422
+    // telling the donor their slip is unreadable.
+    ['duplicate', 409, 'slip_already_used'],
+    ['wrong_receiver', 422, 'receiver_mismatch'],
+    ['wrong_amount', 422, 'amount_mismatch'],
+    ['unreadable', 422, 'slip_unreadable'],
+  ] as const)('maps an upstream %s refusal to %i', async (reason, status, code) => {
+    verifierMock.verify.mockRejectedValue(new SlipRejectedError('x', reason))
+    const result = await submitSlip(INPUT)
+    expect(result).toMatchObject({ ok: false, status, code })
+    expect(settleMock).not.toHaveBeenCalled()
+  })
+
   it('NEVER calls a slip fake because our own upstream is down', async () => {
     // 503, not 422. Telling a paying donor their genuine slip is forged
     // because SlipOK is out of quota is the worst answer available.

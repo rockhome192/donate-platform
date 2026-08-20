@@ -54,12 +54,28 @@ export interface SlipVerifier {
 export class SlipRejectedError extends Error {
   constructor(
     message: string,
-    readonly reason: 'unreadable' | 'not_found' | 'forged',
+    readonly reason: SlipRejectionReason,
   ) {
     super(message)
     this.name = 'SlipRejectedError'
   }
 }
+
+/**
+ * Why a slip was refused, in the upstream's own terms.
+ *
+ * `duplicate` and `wrong_receiver` overlap with layers 2 and 3, which we run
+ * ourselves regardless — a verifier that happens to check something is not a
+ * reason to stop checking it. They appear here only because SlipOK refuses
+ * BEFORE returning facts, so those refusals arrive as errors rather than as
+ * something our own layers can inspect.
+ */
+export type SlipRejectionReason =
+  | 'unreadable'
+  | 'not_found'
+  | 'duplicate'
+  | 'wrong_receiver'
+  | 'wrong_amount'
 
 /**
  * The upstream itself is down, out of quota, or unreachable — which says

@@ -1,9 +1,11 @@
 import { FakeSlipVerifier } from './slip-fake'
+import { SlipOkVerifier } from './slipok'
 import type { SlipVerifier } from './slip-types'
 
 export * from './slip-types'
 export * from './slip-checks'
 export { FakeSlipVerifier, encodeFakeSlip } from './slip-fake'
+export { SlipOkVerifier } from './slipok'
 
 let cached: SlipVerifier | null = null
 
@@ -22,12 +24,8 @@ export function getSlipVerifier(): SlipVerifier {
       cached = new FakeSlipVerifier()
       return cached
     case 'slipok':
-      // Deliberately absent. The Omise adapter was written from the spec alone
-      // and its riskiest details only survived contact with a real payload by
-      // luck; that lesson is not worth relearning. The SlipOK adapter gets
-      // written against the real API document and a real slip, not against a
-      // guess at the response shape.
-      throw new Error('SLIP_VERIFIER=slipok is not implemented yet — see DESIGN.md 7.3')
+      cached = new SlipOkVerifier()
+      return cached
     default:
       throw new Error(`Unknown SLIP_VERIFIER: ${choice}`)
   }

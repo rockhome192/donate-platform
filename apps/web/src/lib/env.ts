@@ -63,6 +63,17 @@ export const env = {
   },
 
   /**
+   * SlipOK. The branch id is a path segment, not a header, and the key goes in
+   * `x-authorization` — a plain `Authorization` header is refused with 1002.
+   */
+  get slipokApiKey() {
+    return required('SLIPOK_API_KEY')
+  },
+  get slipokBranchId() {
+    return required('SLIPOK_BRANCH_ID')
+  },
+
+  /**
    * Shared bearer for POST /api/cron/reconcile. Vercel Cron sends it as
    * `Authorization: Bearer $CRON_SECRET`; apps/realtime uses the same header.
    */

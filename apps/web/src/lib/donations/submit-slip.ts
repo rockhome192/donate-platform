@@ -1,6 +1,11 @@
 import { db, isUniqueViolation } from '@/lib/db'
 import { checkSlipAgainstDonation, getSlipVerifier } from '@/lib/payments/slip'
-import { SlipRejectedError, SlipVerifierUnavailableError, type SlipInput } from '@/lib/payments/slip-types'
+import {
+  SlipRejectedError,
+  SlipVerifierUnavailableError,
+  type SlipInput,
+  type SlipRejectionReason,
+} from '@/lib/payments/slip-types'
 import { rateLimit } from '@/lib/rate-limit'
 import { settleDonation } from './settle'
 
@@ -42,6 +47,43 @@ export type SubmitSlipResult =
       /** Seconds, on 429 only. */
       retryAfter?: number
     }
+
+/**
+ * Refusals that reach us as an upstream error rather than as facts our own
+ * layers can inspect. A verifier that refuses early saves us a check; it does
+ * not get to decide what the donor is told.
+ */
+const SLIP_ALREADY_USED = {
+  status: 409,
+  code: 'slip_already_used',
+  message: 'สลิปใบนี้ถูกใช้ไปแล้ว',
+} as const
+
+const REJECTION_RESPONSES = {
+  unreadable: {
+    status: 422,
+    code: 'slip_unreadable',
+    message: 'อ่านสลิปนี้ไม่ออก กรุณาส่งภาพที่ชัดเจนกว่านี้',
+  },
+  not_found: {
+    status: 422,
+    code: 'slip_not_found',
+    message: 'ตรวจสอบสลิปนี้กับธนาคารไม่พบรายการโอน',
+  },
+  // The upstream's dedupe firing means the same thing ours does, so it gets
+  // the same answer — a 409, never a 422 about an unreadable slip.
+  duplicate: SLIP_ALREADY_USED,
+  wrong_receiver: {
+    status: 422,
+    code: 'receiver_mismatch',
+    message: 'สลิปนี้โอนเข้าบัญชีอื่น ไม่ใช่บัญชีของสตรีมเมอร์คนนี้',
+  },
+  wrong_amount: {
+    status: 422,
+    code: 'amount_mismatch',
+    message: 'ยอดในสลิปไม่ตรงกับยอดของรายการนี้',
+  },
+} as const satisfies Record<SlipRejectionReason, { status: 409 | 422; code: string; message: string }>
 
 export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResult> {
   // ---- Layer 6a: per-IP, before anything reads the database ----------------
@@ -145,15 +187,7 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
     facts = await getSlipVerifier().verify(input.slip)
   } catch (e) {
     if (e instanceof SlipRejectedError) {
-      return {
-        ok: false,
-        status: 422,
-        code: `slip_${e.reason}`,
-        message:
-          e.reason === 'unreadable'
-            ? 'อ่านสลิปนี้ไม่ออก กรุณาส่งภาพที่ชัดเจนกว่านี้'
-            : 'ตรวจสอบสลิปนี้กับธนาคารไม่พบรายการโอน',
-      }
+      return { ok: false, ...REJECTION_RESPONSES[e.reason] }
     }
     if (e instanceof SlipVerifierUnavailableError) {
       // Never told the donor their slip is fake because OUR upstream is down.
@@ -244,12 +278,7 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
       // DIFFERENT donation. That is the whole point of the constraint — a
       // SELECT-then-INSERT would lose this race to a concurrent request, which
       // is precisely how one slip pays for two donations.
-      return {
-        ok: false,
-        status: 409,
-        code: 'slip_already_used',
-        message: 'สลิปใบนี้ถูกใช้ไปแล้ว',
-      }
+      return { ok: false, ...SLIP_ALREADY_USED }
     }
     throw e
   }
