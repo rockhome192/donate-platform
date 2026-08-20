@@ -10,11 +10,12 @@ import { SlipRejectedError, SlipVerifierUnavailableError } from '../payments/sli
  * is never reported to a donor as a forged slip.
  */
 
-const { dbMock, rateLimitMock, verifierMock, settleMock } = vi.hoisted(() => ({
+const { dbMock, rateLimitMock, verifierMock, settleMock, envMock } = vi.hoisted(() => ({
   dbMock: { donation: { findUnique: vi.fn() } },
   rateLimitMock: vi.fn(),
   verifierMock: { name: 'fake', verify: vi.fn() },
   settleMock: vi.fn(),
+  envMock: { slipDonationsEnabled: true },
 }))
 
 vi.mock('@/lib/db', () => ({
@@ -23,6 +24,7 @@ vi.mock('@/lib/db', () => ({
     typeof e === 'object' && e !== null && (e as { code?: string }).code === 'P2002',
 }))
 vi.mock('@/lib/rate-limit', () => ({ rateLimit: rateLimitMock }))
+vi.mock('@/lib/env', () => ({ env: envMock }))
 vi.mock('@/lib/payments/slip', async (importOriginal) => ({
   // The real checks run — only the upstream is swapped out.
   ...(await importOriginal<typeof import('../payments/slip')>()),
@@ -45,7 +47,12 @@ function aDonation(overrides: Record<string, unknown> = {}) {
     provider: 'SLIP',
     createdAt: new Date(),
     expiresAt: new Date(Date.now() + 10 * 60_000),
-    streamer: { bankCode: '004', bankAccountLast4: '7788' },
+    streamer: {
+      bankCode: '004',
+      bankAccountLast4: '7788',
+      bankAccountName: 'พชรดนัย ตั้งอั้น',
+      promptPayId: '0812341112',
+    },
     ...overrides,
   }
 }
@@ -57,7 +64,10 @@ function goodFacts(overrides: Record<string, unknown> = {}) {
     senderBank: '014',
     receiverBankCode: '004',
     receiverAccountLast4: '7788',
-    receiverName: null,
+    receiverAccountRaw: 'xxx-x-x7788-x',
+    receiverProxyLast4: null,
+    receiverProxyRaw: null,
+    receiverNames: ['นาย พชรดนัย ต', 'MR. PHATCHARADANAI T'],
     transferredAt: new Date(Date.now() - 30_000),
     ...overrides,
   }
@@ -67,6 +77,7 @@ const INPUT = { donationId: 'don_1', slip: { qrPayload: 'x' }, clientIp: '1.2.3.
 
 beforeEach(() => {
   vi.clearAllMocks()
+  envMock.slipDonationsEnabled = true
   rateLimitMock.mockResolvedValue({ ok: true, retryAfter: 0 })
   dbMock.donation.findUnique.mockResolvedValue(aDonation())
   verifierMock.verify.mockResolvedValue(goodFacts())
@@ -125,7 +136,14 @@ describe('cheap refusals never spend a verification', () => {
     ['an expired one', aDonation({ expiresAt: new Date(Date.now() - 1_000) }), 409],
     [
       'a streamer with no account',
-      aDonation({ streamer: { bankCode: null, bankAccountLast4: null } }),
+      aDonation({
+        streamer: {
+          bankCode: null,
+          bankAccountLast4: null,
+          bankAccountName: null,
+          promptPayId: null,
+        },
+      }),
       409,
     ],
   ])('%s', async (_label, row, status) => {
@@ -149,7 +167,11 @@ describe('layer 1 — what the upstream says, and what it does not', () => {
     // The upstream's own dedupe firing means what ours means: 409, not a 422
     // telling the donor their slip is unreadable.
     ['duplicate', 409, 'slip_already_used'],
-    ['wrong_receiver', 422, 'receiver_mismatch'],
+    // NOT 'receiver_mismatch' — that is our layer 3. This one is SlipOK
+    // refusing against the account registered in its own branch, which is
+    // fixed in their LINE bot, not in this app. One shared code cost three
+    // rounds of debugging a check that had never run.
+    ['wrong_receiver', 422, 'upstream_receiver_mismatch'],
     ['wrong_amount', 422, 'amount_mismatch'],
     ['unreadable', 422, 'slip_unreadable'],
   ] as const)('maps an upstream %s refusal to %i', async (reason, status, code) => {
@@ -186,6 +208,22 @@ describe('layer 1 — what the upstream says, and what it does not', () => {
   it('lets an unexpected error escape rather than swallowing it', async () => {
     verifierMock.verify.mockRejectedValue(new TypeError('boom'))
     await expect(submitSlip(INPUT)).rejects.toThrow('boom')
+  })
+})
+
+describe('the fake verifier never blames the donor for our configuration', () => {
+  it('answers 503 when SLIP_VERIFIER=fake is handed an image', async () => {
+    // What this test exists for: the fake cannot read pixels, and saying so as
+    // "your slip is unreadable" told a donor who had already transferred real
+    // money to retake a photo that could never work on that deployment.
+    const { FakeSlipVerifier } = await import('../payments/slip-fake')
+    verifierMock.verify.mockImplementation((i: unknown) =>
+      new FakeSlipVerifier().verify(i as never),
+    )
+
+    const result = await submitSlip({ ...INPUT, slip: { imageBase64: 'aGk=' } })
+
+    expect(result).toMatchObject({ ok: false, status: 503, code: 'verifier_unavailable' })
   })
 })
 
@@ -230,5 +268,22 @@ describe('layer 2 — one slip, one donation', () => {
   it('lets a database error escape rather than reporting a spent slip', async () => {
     settleMock.mockRejectedValue(Object.assign(new Error('down'), { code: 'P1001' }))
     await expect(submitSlip(INPUT)).rejects.toThrow('down')
+  })
+})
+
+describe('the deployment switch', () => {
+  it('refuses before touching the database or the upstream when slips are off', async () => {
+    // A donation created while the feature was on is still PENDING when it is
+    // turned off. Settling one would spend a verification and credit money on
+    // a deployment that has decided it takes none.
+    envMock.slipDonationsEnabled = false
+
+    const result = await submitSlip(INPUT)
+
+    expect(result).toMatchObject({ ok: false, status: 503, code: 'slip_disabled' })
+    expect(rateLimitMock).not.toHaveBeenCalled()
+    expect(dbMock.donation.findUnique).not.toHaveBeenCalled()
+    expect(verifierMock.verify).not.toHaveBeenCalled()
+    expect(settleMock).not.toHaveBeenCalled()
   })
 })

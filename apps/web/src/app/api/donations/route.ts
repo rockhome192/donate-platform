@@ -3,6 +3,7 @@ import QRCode from 'qrcode'
 import { db } from '@/lib/db'
 import { checkStreamerRules, donationExpiry } from '@/lib/donation-rules'
 import { getPaymentProvider, ProviderUnavailableError } from '@/lib/payments'
+import { env } from '@/lib/env'
 import { clientIp, rateLimit } from '@/lib/rate-limit'
 
 /**
@@ -94,6 +95,16 @@ export async function POST(req: Request) {
     failure that costs a viewer actual money.
   */
   if (input.method === 'slip') {
+    // Checked on the server, not only hidden in the UI. The page stops
+    // OFFERING the option; this stops it being USED by a request that never
+    // went near the page.
+    if (!env.slipDonationsEnabled) {
+      return Response.json(
+        { error: 'ดีพลอยนี้ไม่ได้เปิดรับโอนพร้อมสลิป' },
+        { status: 409 },
+      )
+    }
+
     if (
       !streamer.bankCode ||
       !streamer.bankAccountLast4 ||

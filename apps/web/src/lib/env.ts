@@ -63,6 +63,22 @@ export const env = {
   },
 
   /**
+   * Whether this deployment offers donation-by-bank-transfer at all.
+   *
+   * Separate from whether a streamer has filled in their account, and separate
+   * from SLIP_VERIFIER, because it answers a different question: not "can we
+   * verify a slip" but "should this deployment be taking real money from
+   * strangers". The public demo says **ไม่รับเงินจริง** in six places, and the
+   * slip path is the one thing on the site that would make that a lie — a real
+   * PromptPay QR, a real transfer, into somebody's personal account.
+   *
+   * Off unless explicitly turned on, like PAYMENT_PROVIDER defaulting to mock:
+   * a missing env var must never be the reason a demo starts accepting money.
+   * Local development sets it; production does not.
+   */
+  slipDonationsEnabled: process.env.SLIP_DONATIONS_ENABLED === 'true',
+
+  /**
    * SlipOK. The branch id is a path segment, not a header, and the key goes in
    * `x-authorization` — a plain `Authorization` header is refused with 1002.
    */

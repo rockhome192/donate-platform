@@ -4,6 +4,7 @@ import {
   SLIP_FUTURE_SKEW_MS,
   SLIP_MAX_AGE_MS,
 } from '../payments/slip-checks'
+import { nameMatches } from '../payments/slip-checks'
 import type { SlipFacts } from '../payments/slip-types'
 
 /**
@@ -23,13 +24,22 @@ function facts(overrides: Partial<SlipFacts> = {}): SlipFacts {
     senderBank: '014',
     receiverBankCode: '004',
     receiverAccountLast4: '7788',
-    receiverName: null,
+    receiverAccountRaw: 'xxx-x-x7788-x',
+    receiverProxyLast4: null,
+    receiverProxyRaw: null,
+    receiverNames: ['นาย พชรดนัย ต', 'MR. PHATCHARADANAI T'],
     transferredAt: new Date(NOW.getTime() - 60_000),
     ...overrides,
   }
 }
 
-const EXPECTED = { amount: 5_000, bankCode: '004', bankAccountLast4: '7788' }
+const EXPECTED = {
+  amount: 5_000,
+  bankCode: '004',
+  bankAccountLast4: '7788',
+  promptPayLast4: '1112',
+  accountName: 'พชรดนัย ตั้งอั้น',
+}
 
 describe('layer 3 — the destination account', () => {
   it('accepts a slip that landed in the streamer’s account', () => {
@@ -127,5 +137,198 @@ describe('layer 5 — the clock', () => {
       NOW,
     )
     expect(result?.code).toBe('slip_unreadable_time')
+  })
+})
+
+describe('layer 3 — a PromptPay slip names no account at all', () => {
+  /**
+   * The shape the first real slip actually came back in: no receiving bank, no
+   * receiving account, the destination in the proxy. Checking accounts alone
+   * meant layer 3 could never pass for the payment method this app's own QR
+   * tells every donor to use.
+   */
+  function promptPayFacts(overrides: Partial<SlipFacts> = {}): SlipFacts {
+    return facts({
+      receiverBankCode: '',
+      receiverAccountLast4: null,
+      receiverAccountRaw: '',
+      receiverProxyLast4: '1112',
+      receiverProxyRaw: 'xxx-xxx-1112',
+      ...overrides,
+    })
+  }
+
+  it('accepts one paid to the streamer’s own PromptPay number', () => {
+    expect(checkSlipAgainstDonation(promptPayFacts(), EXPECTED, NOW)).toBeNull()
+  })
+
+  it('rejects one paid to a different PromptPay number', () => {
+    const result = checkSlipAgainstDonation(
+      promptPayFacts({ receiverProxyLast4: '9999' }),
+      EXPECTED,
+      NOW,
+    )
+    expect(result?.code).toBe('receiver_mismatch')
+  })
+
+  it('FAILS CLOSED when the slip names neither an account nor a proxy', () => {
+    const result = checkSlipAgainstDonation(
+      promptPayFacts({ receiverProxyLast4: null, receiverProxyRaw: '' }),
+      EXPECTED,
+      NOW,
+    )
+    expect(result?.code).toBe('receiver_unreadable')
+  })
+
+  it('FAILS CLOSED when the streamer has no PromptPay number registered', () => {
+    const result = checkSlipAgainstDonation(
+      promptPayFacts(),
+      { ...EXPECTED, promptPayLast4: null },
+      NOW,
+    )
+    expect(result?.code).toBe('receiver_unconfigured')
+  })
+
+  it('requires BOTH to match when a slip names both', () => {
+    // Naming one correctly does not excuse the other. A slip that carries an
+    // account and a proxy has to agree with us about each.
+    const result = checkSlipAgainstDonation(
+      facts({ receiverProxyLast4: '9999', receiverProxyRaw: 'xxx-xxx-9999' }),
+      EXPECTED,
+      NOW,
+    )
+    expect(result?.code).toBe('receiver_mismatch')
+  })
+})
+
+describe('nameMatches — banks abbreviate, attackers cannot', () => {
+  it('accepts the real abbreviation a bank actually sent', () => {
+    // Observed on the first real slip: title bolted on, surname cut to one
+    // character. Any equality check would have rejected the account's owner.
+    expect(nameMatches('นาย พชรดนัย ต', 'พชรดนัย ตั้งอั้น')).toBe(true)
+  })
+
+  it.each([['นาง'], ['นางสาว'], ['น.ส.'], ['Mr.'], ['MS']])('strips the title %s', (title) => {
+    expect(nameMatches(`${title} พชรดนัย ต`, 'พชรดนัย ตั้งอั้น')).toBe(true)
+  })
+
+  it('rejects a different first name with the same initial surname', () => {
+    // The whole point. `ต` alone must not match every surname in Thailand.
+    expect(nameMatches('นาย สมชาย ต', 'พชรดนัย ตั้งอั้น')).toBe(false)
+  })
+
+  it('rejects a different surname', () => {
+    expect(nameMatches('นาย พชรดนัย ส', 'พชรดนัย ตั้งอั้น')).toBe(false)
+  })
+
+  it('rejects a slip carrying MORE names than we hold', () => {
+    expect(nameMatches('พชรดนัย ตั้งอั้น เพิ่ม', 'พชรดนัย ตั้งอั้น')).toBe(false)
+  })
+
+  it.each([[''], ['  '], ['นาย'], ['Mr.']])('treats %s as no name, not as agreement', (name) => {
+    expect(nameMatches(name, 'พชรดนัย ตั้งอั้น')).toBe(false)
+    expect(nameMatches('พชรดนัย ต', name)).toBe(false)
+  })
+})
+
+describe('layer 3 — the name is what a phone number cannot be', () => {
+  function promptPayFacts(overrides: Partial<SlipFacts> = {}): SlipFacts {
+    return facts({
+      receiverBankCode: '',
+      receiverAccountLast4: null,
+      receiverAccountRaw: '',
+      receiverProxyLast4: '1112',
+      receiverProxyRaw: 'xxx-xxx-1112',
+      ...overrides,
+    })
+  }
+
+  it('rejects a slip whose digits match but whose name does not', () => {
+    /*
+      The attack this closes. A Thai phone shop will sell a number ending in
+      any four digits asked for, so an attacker can match `promptPayLast4`
+      exactly, point PromptPay at their OWN account, transfer to themselves for
+      the right amount, and submit a slip that is genuine in every particular.
+      Every other layer passes it.
+    */
+    const result = checkSlipAgainstDonation(
+      promptPayFacts({ receiverNames: ['นาย สมชาย ใจดี'] }),
+      EXPECTED,
+      NOW,
+    )
+    expect(result?.code).toBe('receiver_name_mismatch')
+  })
+
+  it('refuses a nameless PromptPay slip rather than trusting four digits alone', () => {
+    const result = checkSlipAgainstDonation(
+      promptPayFacts({ receiverNames: [] }),
+      EXPECTED,
+      NOW,
+    )
+    expect(result?.code).toBe('receiver_name_missing')
+  })
+
+  it('still accepts the streamer’s own PromptPay slip', () => {
+    expect(checkSlipAgainstDonation(promptPayFacts(), EXPECTED, NOW)).toBeNull()
+  })
+
+  it('FAILS CLOSED when the streamer registered no account name', () => {
+    const result = checkSlipAgainstDonation(
+      promptPayFacts(),
+      { ...EXPECTED, accountName: null },
+      NOW,
+    )
+    expect(result?.code).toBe('receiver_unconfigured')
+  })
+})
+
+describe('layer 3 — the same name in two scripts', () => {
+  it('accepts when the THAI form matches, ignoring the romanised one', () => {
+    /*
+      Exactly what a real slip sent: SlipOK returns `displayName` in Thai and
+      `name` romanised, and the streamer registered theirs in Thai. Ranking the
+      two by length picked `MR. PHATCHARADANAI T`, compared it against
+      `พชรดนัย ตั้งอั้น`, and refused the account's own owner.
+    */
+    const result = checkSlipAgainstDonation(
+      facts({
+        receiverBankCode: '',
+        receiverAccountLast4: null,
+        receiverProxyLast4: '1112',
+        receiverNames: ['นาย พชรดนัย ต', 'MR. PHATCHARADANAI T'],
+      }),
+      EXPECTED,
+      NOW,
+    )
+    expect(result).toBeNull()
+  })
+
+  it('accepts when only the ROMANISED form matches', () => {
+    // A streamer who typed their name in English gets the mirror image.
+    const result = checkSlipAgainstDonation(
+      facts({
+        receiverBankCode: '',
+        receiverAccountLast4: null,
+        receiverProxyLast4: '1112',
+        receiverNames: ['นาย พชรดนัย ต', 'MR. PHATCHARADANAI T'],
+      }),
+      { ...EXPECTED, accountName: 'PHATCHARADANAI TANGAUN' },
+      NOW,
+    )
+    expect(result).toBeNull()
+  })
+
+  it('still refuses when NEITHER form matches', () => {
+    const result = checkSlipAgainstDonation(
+      facts({
+        receiverBankCode: '',
+        receiverAccountLast4: null,
+        receiverProxyLast4: '1112',
+        receiverNames: ['นาย สมชาย ใจดี', 'MR. SOMCHAI J'],
+      }),
+      EXPECTED,
+      NOW,
+    )
+    expect(result?.code).toBe('receiver_name_mismatch')
   })
 })

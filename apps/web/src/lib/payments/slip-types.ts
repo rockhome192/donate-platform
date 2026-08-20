@@ -32,7 +32,40 @@ export type SlipFacts = {
   receiverBankCode: string | null
   /** Last four digits of the destination account, null if unavailable */
   receiverAccountLast4: string | null
-  receiverName: string | null
+  /**
+   * The destination account exactly as the upstream wrote it, masking and all.
+   *
+   * Diagnostics only — never compared against anything. It exists because the
+   * first real slip failed layer 3 and there was no way to tell whether the
+   * masking had been parsed wrong or the money had genuinely gone elsewhere.
+   * A streamer whose slip donations all fail needs an answer better than
+   * "mismatch", and the bank has already masked this string.
+   */
+  receiverAccountRaw: string | null
+  /**
+   * The PromptPay proxy the money was sent to — a masked phone number or id.
+   *
+   * This is where a PromptPay transfer's destination actually lives. A slip
+   * for one carries NO receiving account and no receiving bank at all: the
+   * first real slip came back with `account.value === ''`, `receivingBank ===
+   * ''`, and only the receiver's name filled in. Checking the account alone
+   * meant layer 3 could never pass for the payment method this app's own QR
+   * tells donors to use.
+   */
+  receiverProxyLast4: string | null
+  /** Diagnostics only, same reasoning as `receiverAccountRaw`. */
+  receiverProxyRaw: string | null
+  /**
+   * Every form of the receiver's name the upstream gave, in no order.
+   *
+   * A list, not a string, because SlipOK sends the SAME name twice in two
+   * scripts — `displayName` in Thai, `name` romanised. A real slip came back
+   * as `["นาย พชรดนัย ต", "MR. PHATCHARADANAI T"]`. Picking one by length
+   * chose the romanised form and compared it against a Thai name nobody could
+   * ever match; picking by script would be a guess about how the streamer
+   * typed theirs. Matching any of them is neither.
+   */
+  receiverNames: string[]
   transferredAt: Date
 }
 

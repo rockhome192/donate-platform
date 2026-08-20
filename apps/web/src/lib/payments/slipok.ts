@@ -134,6 +134,7 @@ export function parseFacts(data: unknown): SlipFacts {
   const d = data as Record<string, unknown>
   const receiver = (d.receiver ?? {}) as Record<string, unknown>
   const account = (receiver.account ?? {}) as Record<string, unknown>
+  const proxy = (receiver.proxy ?? {}) as Record<string, unknown>
 
   const baht = typeof d.amount === 'number' ? d.amount : Number(d.amount)
   if (!Number.isFinite(baht)) {
@@ -157,7 +158,19 @@ export function parseFacts(data: unknown): SlipFacts {
     senderBank: typeof d.sendingBank === 'string' ? d.sendingBank : '',
     receiverBankCode: typeof d.receivingBank === 'string' ? d.receivingBank : null,
     receiverAccountLast4: lastFourDigits(account.value),
-    receiverName: typeof receiver.displayName === 'string' ? receiver.displayName : null,
+    receiverAccountRaw: typeof account.value === 'string' ? account.value : null,
+    receiverProxyLast4: lastFourDigits(proxy.value),
+    receiverProxyRaw: typeof proxy.value === 'string' ? proxy.value : null,
+    /*
+      Both forms, unranked. SlipOK sends the receiver's name as `displayName`
+      and again as `name`, and they are the same person in two scripts rather
+      than one being fuller than the other — Thai in the first, romanised in
+      the second on the slip that proved it.
+    */
+    receiverNames: [receiver.displayName, receiver.name]
+      .filter((n): n is string => typeof n === 'string')
+      .map((n) => n.trim())
+      .filter((n) => n !== ''),
     transferredAt,
   }
 }
@@ -171,3 +184,4 @@ export function lastFourDigits(masked: unknown): string | null {
   const digits = masked.replace(/\D/g, '')
   return digits.length >= 4 ? digits.slice(-4) : null
 }
+

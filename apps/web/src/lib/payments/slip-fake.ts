@@ -1,4 +1,10 @@
-import { SlipRejectedError, type SlipFacts, type SlipInput, type SlipVerifier } from './slip-types'
+import {
+  SlipRejectedError,
+  SlipVerifierUnavailableError,
+  type SlipFacts,
+  type SlipInput,
+  type SlipVerifier,
+} from './slip-types'
 
 /**
  * The stand-in for a real slip upstream, so the six defence layers can be
@@ -28,9 +34,21 @@ export class FakeSlipVerifier implements SlipVerifier {
 
   async verify(input: SlipInput): Promise<SlipFacts> {
     if (!('qrPayload' in input)) {
-      // A real upstream reads pixels. This one cannot, and pretending it can
-      // would let an image path ship untested against anything real.
-      throw new SlipRejectedError('fake verifier accepts qrPayload only', 'unreadable')
+      /*
+        A real upstream reads pixels. This one cannot, and pretending it can
+        would let the image path ship untested against anything real.
+
+        But it throws UNAVAILABLE, not REJECTED, and the difference is the whole
+        point: "this deployment has no slip verification configured" is a fact
+        about us, not about the donor's slip. Rejecting told a donor who had
+        already transferred real money that their photo was too blurry, and sent
+        them off to retake it — forever, on a deployment where no image can ever
+        work. That is the same mistake as reporting an out-of-quota upstream as
+        a forged slip.
+      */
+      throw new SlipVerifierUnavailableError(
+        'SLIP_VERIFIER=fake cannot read images — set SLIP_VERIFIER=slipok',
+      )
     }
 
     const parts = input.qrPayload.split(':')
@@ -52,7 +70,10 @@ export class FakeSlipVerifier implements SlipVerifier {
       senderBank: '014',
       receiverBankCode: receiverBankCode || null,
       receiverAccountLast4: receiverAccountLast4 || null,
-      receiverName: null,
+      receiverAccountRaw: receiverAccountLast4 || null,
+      receiverProxyLast4: null,
+      receiverProxyRaw: null,
+      receiverNames: [],
       transferredAt,
     }
   }

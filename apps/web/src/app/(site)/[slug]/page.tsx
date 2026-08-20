@@ -224,6 +224,7 @@ export default async function DonatePage({ params }: Params) {
                       produced, which costs a viewer real money to discover.
                     */
                     slipAccount={
+                      env.slipDonationsEnabled &&
                       streamer.bankCode &&
                       streamer.bankAccountLast4 &&
                       streamer.bankAccountName &&

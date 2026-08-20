@@ -303,7 +303,16 @@ export const profileSchema = z.object({
    * Both id kinds are thirteen digits, so the type cannot be inferred and is
    * stored beside the value.
    */
-  promptPayId: z.string().trim().min(9).max(20).nullable().optional(),
+  promptPayId: z
+    .string()
+    .trim()
+    // Digits only, like bankCode and bankAccountLast4. It was validated only
+    // by asking promptPayPayload whether it could build a QR — and that strips
+    // non-digits first, so "0812345678," saved fine and then broke slip
+    // verification forever, because the comparison slices the RAW string.
+    .regex(/^\d{10}$/, 'เบอร์พร้อมเพย์ต้องเป็นตัวเลข 10 หลัก')
+    .nullable()
+    .optional(),
 })
 
 export type ProfileInput = z.infer<typeof profileSchema>

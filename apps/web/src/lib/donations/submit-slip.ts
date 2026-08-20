@@ -1,5 +1,7 @@
 import { db, isUniqueViolation } from '@/lib/db'
+import { env } from '@/lib/env'
 import { checkSlipAgainstDonation, getSlipVerifier } from '@/lib/payments/slip'
+import { lastFourDigits } from '@/lib/payments/slipok'
 import {
   SlipRejectedError,
   SlipVerifierUnavailableError,
@@ -29,6 +31,18 @@ const SLIP_IP_WINDOW_SECONDS = 5 * 60
 /** Per-streamer ceiling, which is really a ceiling on the monthly quota. */
 const SLIP_STREAMER_LIMIT = 30
 const SLIP_STREAMER_WINDOW_SECONDS = 60 * 60
+
+/**
+ * Diagnostics carry a real person's name and a masked phone number, so they are
+ * off unless BOTH switches say otherwise.
+ *
+ * NODE_ENV alone was doing this job, and it is the wrong switch on its own —
+ * it is shared with dozens of unrelated behaviours, and this endpoint is public
+ * and unauthenticated. Anyone running `next dev` against production-like data
+ * for a demo would have been serving a real name to whoever asked.
+ */
+const IS_PRODUCTION = process.env.NODE_ENV === 'production'
+const SLIP_DEBUG = !IS_PRODUCTION && process.env.SLIP_DEBUG === 'true'
 
 export type SubmitSlipInput = {
   donationId: string
@@ -73,9 +87,23 @@ const REJECTION_RESPONSES = {
   // The upstream's dedupe firing means the same thing ours does, so it gets
   // the same answer — a 409, never a 422 about an unreadable slip.
   duplicate: SLIP_ALREADY_USED,
+  /*
+    A DIFFERENT code from our own layer-3 mismatch, even though the donor is
+    told the same thing — because the two mean opposite things to whoever has
+    to fix it.
+
+    Ours means the slip disagrees with what the streamer typed into the profile
+    form. This one means SlipOK refused before we ever saw the slip: the
+    receiver does not match the account registered inside the SlipOK branch
+    itself (their code 1014), which is configured in SlipOK's LINE bot and
+    nowhere in this app.
+
+    They shared one code once, and it cost three rounds of debugging a check
+    that had never run.
+  */
   wrong_receiver: {
     status: 422,
-    code: 'receiver_mismatch',
+    code: 'upstream_receiver_mismatch',
     message: 'สลิปนี้โอนเข้าบัญชีอื่น ไม่ใช่บัญชีของสตรีมเมอร์คนนี้',
   },
   wrong_amount: {
@@ -86,6 +114,24 @@ const REJECTION_RESPONSES = {
 } as const satisfies Record<SlipRejectionReason, { status: 409 | 422; code: string; message: string }>
 
 export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResult> {
+  /*
+    The deployment-level switch, checked before anything else.
+
+    Not redundant with the check in POST /api/donations: a donation created
+    while the feature was on is still sitting there PENDING when it is turned
+    off, and settling one of those would spend a verification and credit money
+    on a deployment that has decided it does not take any. 503 rather than a
+    422, because this is a fact about us.
+  */
+  if (!env.slipDonationsEnabled) {
+    return {
+      ok: false,
+      status: 503,
+      code: 'slip_disabled',
+      message: 'ดีพลอยนี้ไม่ได้เปิดรับโอนพร้อมสลิป',
+    }
+  }
+
   // ---- Layer 6a: per-IP, before anything reads the database ----------------
   const byIp = await rateLimit(`slip:ip:${input.clientIp}`, SLIP_IP_LIMIT, SLIP_IP_WINDOW_SECONDS)
   if (!byIp.ok) {
@@ -110,7 +156,14 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
       provider: true,
       createdAt: true,
       expiresAt: true,
-      streamer: { select: { bankCode: true, bankAccountLast4: true } },
+      streamer: {
+        select: {
+          bankCode: true,
+          bankAccountLast4: true,
+          bankAccountName: true,
+          promptPayId: true,
+        },
+      },
     },
   })
 
@@ -156,7 +209,11 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
   // not spend one of the month's 100 verifications first. `checkSlipAgainstDonation`
   // repeats it, on purpose: it is a pure function with its own callers and must
   // stay safe on its own.
-  if (!donation.streamer.bankCode || !donation.streamer.bankAccountLast4) {
+  if (
+    !donation.streamer.bankCode ||
+    !donation.streamer.bankAccountLast4 ||
+    !donation.streamer.promptPayId
+  ) {
     return {
       ok: false,
       status: 409,
@@ -187,7 +244,17 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
     facts = await getSlipVerifier().verify(input.slip)
   } catch (e) {
     if (e instanceof SlipRejectedError) {
-      return { ok: false, ...REJECTION_RESPONSES[e.reason] }
+      // The upstream's own words, which are the only clue to a rejection that
+      // happened before any of our checks could run.
+      console.warn(`[slip] upstream rejected donation ${input.donationId}: ${e.reason} — ${e.message}`)
+      const response = REJECTION_RESPONSES[e.reason]
+      return {
+        ok: false,
+        ...response,
+        message: SLIP_DEBUG
+          ? `${response.message} [dev: SlipOK ปฏิเสธเอง — ${e.reason}: ${e.message}]`
+          : response.message,
+      }
     }
     if (e instanceof SlipVerifierUnavailableError) {
       // Never told the donor their slip is fake because OUR upstream is down.
@@ -246,11 +313,57 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
       amount: donation.amount,
       bankCode: donation.streamer.bankCode,
       bankAccountLast4: donation.streamer.bankAccountLast4,
+      accountName: donation.streamer.bankAccountName,
+      // The QR sends donors here, so this is the destination a real slip names.
+      // lastFourDigits, not slice(-4): the slip's side is extracted that way,
+      // and two different extractions on the two sides of one comparison is a
+      // mismatch waiting for a stray character.
+      promptPayLast4: lastFourDigits(donation.streamer.promptPayId),
     },
     new Date(),
   )
   if (failure) {
-    return { ok: false, status: failure.status, code: failure.code, message: failure.message }
+    /*
+      Logged, because "mismatch" on its own is unactionable.
+
+      Two very different things produce it: the masking was parsed wrong, or the
+      money really did land somewhere else — which is easy to do by accident,
+      since a PromptPay transfer goes to whichever account that phone number is
+      registered to, and that need not be the one the streamer typed in here.
+      Without both sides side by side there is no way to tell them apart.
+
+      The account is four digits and the raw value arrives already masked by the
+      bank, so this adds nothing to the log that the row does not already hold.
+    */
+    if (!IS_PRODUCTION && failure.code.startsWith('receiver_')) {
+      console.warn(
+        `[slip] receiver check failed for donation ${donation.id} — ` +
+          `expected bank=${donation.streamer.bankCode} last4=${donation.streamer.bankAccountLast4}, ` +
+          `slip says bank=${facts.receiverBankCode} last4=${facts.receiverAccountLast4} ` +
+          `raw=${JSON.stringify(facts.receiverAccountRaw)} ` +
+          `proxy=${JSON.stringify(facts.receiverProxyRaw)} proxyLast4=${facts.receiverProxyLast4} ` +
+          `names=${JSON.stringify(facts.receiverNames)}`,
+      )
+    }
+    /*
+      In development the observed values ride along in the message itself.
+
+      Not a nicety: the masking a bank puts on a slip differs per bank, so the
+      first time a real slip meets this check the only way to learn what it
+      actually said is to see it. A server log is easy to miss when the answer
+      shows up in a browser, and every retry costs a verification out of a
+      quota of a hundred. Never in production — there it would tell whoever is
+      probing exactly which digits to guess next.
+    */
+    const message = !SLIP_DEBUG
+      ? failure.message
+      : `${failure.message} [dev: slip says bank=${facts.receiverBankCode} ` +
+          `last4=${facts.receiverAccountLast4} raw=${JSON.stringify(facts.receiverAccountRaw)} ` +
+          `proxy=${JSON.stringify(facts.receiverProxyRaw)} proxyLast4=${facts.receiverProxyLast4} ` +
+          `names=${JSON.stringify(facts.receiverNames)} | expected bank=${donation.streamer.bankCode} ` +
+          `last4=${donation.streamer.bankAccountLast4} ppLast4=${lastFourDigits(donation.streamer.promptPayId)} name=${JSON.stringify(donation.streamer.bankAccountName)}]`
+
+    return { ok: false, status: failure.status, code: failure.code, message }
   }
 
   // ---- Layer 2: the dedupe, and the settle, in one statement ---------------
