@@ -620,6 +620,15 @@ function SlipPanel({
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<{ alerted: boolean } | null>(null)
+  const [secondsLeft, setSecondsLeft] = useState(() => secondsUntil(created.expiresAt))
+
+  // Ticking rather than rendered once: a frozen "45:00" that still says 45:00
+  // twenty minutes later is its own small lie, and this is the number the donor
+  // is deciding against before they move real money.
+  useEffect(() => {
+    const id = setInterval(() => setSecondsLeft(secondsUntil(created.expiresAt)), 1000)
+    return () => clearInterval(id)
+  }, [created.expiresAt])
 
   async function sendSlip(file: File) {
     setError(null)
@@ -628,7 +637,17 @@ function SlipPanel({
       // Base64 in JSON rather than multipart. Both are accepted — checked
       // against the live API with a real key — and JSON keeps the route on the
       // same parse path as every other endpoint here.
-      const base64 = await readAsBase64(file)
+      // Read first, and OUTSIDE the network catch below: a file the browser
+      // cannot read is not a connection problem, and telling the donor to
+      // check their internet sends them to fix something that is not broken.
+      let base64: string
+      try {
+        base64 = await readAsBase64(file)
+      } catch {
+        setError('อ่านไฟล์นี้ไม่ได้ กรุณาเลือกรูปอื่น')
+        return
+      }
+
       const res = await fetch(`/api/donations/${created.donationId}/slip`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -657,9 +676,16 @@ function SlipPanel({
           <span className="font-numeric text-money">฿{formatBaht(created.amount)}</span> ให้{' '}
           {displayName} แล้ว
         </p>
+        {/*
+          `alerted` is "over the streamer's alert threshold", NOT "the overlay
+          displayed it" — settleDonation publishes best-effort and reports
+          success either way, so an overlay that was offline leaves this
+          donation waiting in /missed until it reconnects. QrPanel is careful
+          about exactly this distinction a few hundred lines up; so is this.
+        */}
         <p className="mt-2 text-meta text-faint">
           {done.alerted
-            ? 'ข้อความของคุณกำลังขึ้นบนหน้าจอสตรีมเมอร์'
+            ? 'ข้อความของคุณถูกส่งไปขึ้นบนหน้าจอสตรีมเมอร์แล้ว — ถ้าตอนนี้ยังไม่ได้เปิดโปรแกรมอยู่ จะขึ้นตอนเปิดครั้งถัดไป'
             : 'ยอดนี้ต่ำกว่าที่สตรีมเมอร์ตั้งให้ขึ้นแจ้งเตือน จึงไม่แสดงบนหน้าจอ'}
         </p>
         <button type="button" onClick={onRestart} className={`${buttonClass('quiet', 'md')} mt-5`}>
@@ -680,9 +706,21 @@ function SlipPanel({
         <Row label="ยอดที่ต้องโอน" value={`฿${formatBaht(created.amount)}`} numeric />
       </dl>
 
+      {/*
+        Two independent clocks run here and the donor has to know about both.
+        Layer 5 holds the slip to fifteen minutes after the TRANSFER; the
+        donation row expires on its own schedule, counted from when this page
+        was opened. Naming only the first one is how somebody transfers real
+        money and then finds out the donation it was for is gone.
+      */}
       <p className="mt-3 text-meta text-faint">
-        ยอดต้อง<span className="text-muted">ตรงทุกสตางค์</span> และต้องแนบสลิป
-        <span className="text-muted">ภายใน 15 นาที</span>หลังโอน มิฉะนั้นระบบจะไม่รับ
+        ยอดต้อง<span className="text-muted">ตรงทุกสตางค์</span> · แนบสลิป
+        <span className="text-muted">ภายใน 15 นาทีหลังโอน</span>
+      </p>
+      <p className="mt-1 text-meta text-faint">
+        รายการนี้เปิดให้โอนอีก{' '}
+        <span className="font-numeric tabular-nums text-muted">{formatCountdown(secondsLeft)}</span>{' '}
+        นาที — หมดเวลาแล้วต้องเริ่มรายการใหม่ก่อนโอน
       </p>
 
       <label className={`${buttonClass('primary', 'md', 'w-full')} mt-5 cursor-pointer`}>

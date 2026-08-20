@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { checkStreamerRules, type StreamerRules } from '../donation-rules'
+import {
+  DONATION_TTL_MS,
+  SLIP_DONATION_TTL_MS,
+  checkStreamerRules,
+  donationExpiry,
+  type StreamerRules,
+} from '../donation-rules'
 
 /**
  * These tests exist because the design review found minAmount declared in the
@@ -66,5 +72,28 @@ describe('checkStreamerRules', () => {
     const failure = checkStreamerRules(50_000, broken)
     expect(failure?.status).toBe(409)
     expect(failure?.field).toBeUndefined()
+  })
+})
+
+describe('donationExpiry — two paths, two clocks', () => {
+  const NOW = new Date('2026-08-20T12:00:00.000Z')
+
+  it('gives the QR path the standard window', () => {
+    expect(donationExpiry(NOW).getTime()).toBe(NOW.getTime() + DONATION_TTL_MS)
+  })
+
+  it('defaults to the standard window when no method is named', () => {
+    // A caller that forgets the argument must not accidentally hand out the
+    // longer one — the same defaulting rule the method field itself follows.
+    expect(donationExpiry(NOW).getTime()).toBe(donationExpiry(NOW, 'gateway').getTime())
+  })
+
+  it('gives the slip path longer, because a bank transfer is not instant', () => {
+    // The donor leaves the page, opens a banking app, maybe logs in again. If
+    // this window closes first they have already sent real money to the right
+    // account for the right amount, and we refuse the slip for a reason that
+    // has nothing to do with the transfer.
+    expect(donationExpiry(NOW, 'slip').getTime()).toBe(NOW.getTime() + SLIP_DONATION_TTL_MS)
+    expect(SLIP_DONATION_TTL_MS).toBeGreaterThan(DONATION_TTL_MS)
   })
 })

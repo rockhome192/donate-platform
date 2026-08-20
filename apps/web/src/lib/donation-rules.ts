@@ -76,6 +76,23 @@ export function checkStreamerRules(
 /** How long a viewer gets to pay before the charge is abandoned. */
 export const DONATION_TTL_MS = 15 * 60_000
 
-export function donationExpiry(now: Date = new Date()): Date {
-  return new Date(now.getTime() + DONATION_TTL_MS)
+/**
+ * The slip path gets longer, and the reason is a donor losing real money.
+ *
+ * A QR is scanned in the same breath as it appears, so fifteen minutes is
+ * generous. A bank transfer is not: the donor leaves the page, opens their
+ * banking app, maybe logs in again, types an account number. Fifteen minutes
+ * from the moment the page was opened is easy to miss.
+ *
+ * And missing it is not a wasted click like it is on the QR path — the money
+ * has already left their account by then, to the right account, for the right
+ * amount, provable by a slip we would refuse for a reason that has nothing to
+ * do with the transfer. Layer 5 still holds the slip itself to fifteen minutes
+ * after the TRANSFER (DESIGN.md 7.3), which is the clock that actually guards
+ * anything; this one only decides how long the donor has to get started.
+ */
+export const SLIP_DONATION_TTL_MS = 45 * 60_000
+
+export function donationExpiry(now: Date = new Date(), method: 'gateway' | 'slip' = 'gateway'): Date {
+  return new Date(now.getTime() + (method === 'slip' ? SLIP_DONATION_TTL_MS : DONATION_TTL_MS))
 }

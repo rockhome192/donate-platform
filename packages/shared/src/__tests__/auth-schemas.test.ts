@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { isHoneypotFilled, passwordSchema, profileSchema, registerSchema } from '../schemas'
+import {
+  SLIP_IMAGE_MAX_BASE64,
+  isHoneypotFilled,
+  passwordSchema,
+  profileSchema,
+  registerSchema,
+  submitSlipSchema,
+} from '../schemas'
 
 const VALID = {
   email: 'someone@example.com',
@@ -194,5 +201,34 @@ describe('profileSchema — the bank account', () => {
       bankAccountName: 'PHATCHARADANAI T',
     })
     expect(parsed.success).toBe(true)
+  })
+})
+
+describe('SLIP_IMAGE_MAX_BASE64', () => {
+  it('stays under the 4.5MB a Vercel Function will accept', () => {
+    // The platform rejects a bigger body itself, before the route or the
+    // schema is reached, and that limit cannot be raised. A cap above it is
+    // decoration: the donor gets a bare 413 instead of a sentence telling them
+    // to send a smaller picture. Raising this constant past the ceiling should
+    // fail here rather than in production.
+    expect(SLIP_IMAGE_MAX_BASE64).toBeLessThan(4_500_000)
+  })
+
+  it('still allows a real phone photo of a slip', () => {
+    // base64 costs a third more than the bytes it encodes, so this is ~2.2MB
+    // of actual image.
+    expect(SLIP_IMAGE_MAX_BASE64).toBeGreaterThan(2_000_000)
+  })
+
+  it('rejects a body one character over the cap', () => {
+    const over = 'a'.repeat(SLIP_IMAGE_MAX_BASE64 + 1)
+    expect(submitSlipSchema.safeParse({ imageBase64: over }).success).toBe(false)
+  })
+
+  it('refuses a body carrying BOTH a payload and an image', () => {
+    // Two different claims about the same transfer; picking one silently is
+    // how the wrong one gets verified.
+    const both = { qrPayload: 'QR', imageBase64: 'aGk=' }
+    expect(submitSlipSchema.safeParse(both).success).toBe(false)
   })
 })

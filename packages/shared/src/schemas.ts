@@ -103,11 +103,18 @@ export type CreateDonationInput = z.infer<typeof createDonationSchema>
 export type DonationMethod = CreateDonationInput['method']
 
 /**
- * ~4MB of image once base64 costs a third more than the bytes it encodes.
- * SlipOK accepts jpg/png/jfif/webp; a phone screenshot is well under this and
- * anything over it is not a slip.
+ * The cap has to sit UNDER the platform's, or it never fires.
+ *
+ * A Vercel Function rejects a request body over 4.5MB itself, before the route
+ * or this schema is reached, and that limit cannot be raised. A cap above it is
+ * decoration: the donor gets a bare 413 from the platform instead of a sentence
+ * telling them to send a smaller picture.
+ *
+ * 3MB of base64 is ~2.2MB of image — a comfortable phone photo of a slip, and
+ * far more than the screenshot most donors will actually send. The rest of the
+ * 4.5MB is left to the JSON envelope and headers.
  */
-export const SLIP_IMAGE_MAX_BASE64 = 5_600_000
+export const SLIP_IMAGE_MAX_BASE64 = 3_000_000
 
 /**
  * Body of POST /api/donations/{id}/slip.

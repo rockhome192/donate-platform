@@ -76,7 +76,7 @@ export async function POST(req: Request) {
     return Response.json({ error: failure.message, field: failure.field }, { status: failure.status })
   }
 
-  const expiresAt = donationExpiry()
+  const expiresAt = donationExpiry(new Date(), input.method)
 
   /*
     The slip path forks here, before a provider is even asked for.
