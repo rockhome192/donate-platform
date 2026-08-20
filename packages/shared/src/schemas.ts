@@ -85,11 +85,45 @@ export const createDonationSchema = z.object({
     .int('amount must be an integer number of satang')
     .min(SYSTEM_MIN_SATANG)
     .max(SYSTEM_MAX_SATANG),
+  /**
+   * How the money is going to arrive. `gateway` creates a charge and waits for
+   * a webhook; `slip` creates nothing and waits for the donor to transfer by
+   * hand and upload proof (DESIGN.md 7.3).
+   *
+   * Defaulted rather than required so every existing client keeps working, and
+   * so a request that forgets the field can never accidentally choose the path
+   * that trusts user-supplied evidence.
+   */
+  method: z.enum(['gateway', 'slip']).default('gateway'),
   /** Honeypot: real users never fill this. Same trick as the portfolio contact form. */
   website: z.string().max(0).optional(),
 })
 
 export type CreateDonationInput = z.infer<typeof createDonationSchema>
+export type DonationMethod = CreateDonationInput['method']
+
+/**
+ * ~4MB of image once base64 costs a third more than the bytes it encodes.
+ * SlipOK accepts jpg/png/jfif/webp; a phone screenshot is well under this and
+ * anything over it is not a slip.
+ */
+export const SLIP_IMAGE_MAX_BASE64 = 5_600_000
+
+/**
+ * Body of POST /api/donations/{id}/slip.
+ *
+ * Exactly one of the two, never both: a caller that sends a QR payload AND an
+ * image is telling us two different things about the same transfer, and
+ * picking one silently is how the wrong one gets verified. The phone flow has
+ * the payload from scanning; the desktop flow has only pixels.
+ */
+export const submitSlipSchema = z.union([
+  z.object({ qrPayload: z.string().trim().min(1).max(500) }).strict(),
+  z.object({ imageBase64: z.string().min(1).max(SLIP_IMAGE_MAX_BASE64) }).strict(),
+])
+
+export type SubmitSlipInput = z.infer<typeof submitSlipSchema>
+
 
 /**
  * Body of POST /api/overlay/{token}/ack — the overlay reporting that it has
@@ -220,6 +254,38 @@ export const profileSchema = z.object({
   // away from anything the person typing baht into the form can act on.
   minAmount: satangBound('ยอดขั้นต่ำ'),
   maxAmount: satangBound('ยอดสูงสุด'),
+
+  /*
+    The destination account slip verification checks against (DESIGN.md 7.3
+    layer 3). Three nullable fields rather than one object, because a partial
+    PATCH has to be able to clear them, and "half a bank account" must not be
+    storable: the route rejects a patch that would leave code and last4
+    disagreeing about whether an account exists.
+
+    Only the last four digits, deliberately. A slip's receiver account arrives
+    masked anyway, so a full number could never be compared against it — it
+    would be a liability with no use.
+
+    `.nullable().optional()` and NOT `.nullable().default(null)`, which is a
+    trap: `.partial()` does not suppress a default in this version of Zod, so
+    `profileSchema.partial().parse({ displayName })` would come back carrying
+    `bankCode: null` — and every unrelated save from the profile form would
+    silently wipe the streamer's account. Verified against the installed Zod
+    rather than assumed; see the test.
+  */
+  bankCode: z
+    .string()
+    .trim()
+    .regex(/^\d{3}$/, 'รหัสธนาคารต้องเป็นตัวเลข 3 หลัก')
+    .nullable()
+    .optional(),
+  bankAccountLast4: z
+    .string()
+    .trim()
+    .regex(/^\d{4}$/, 'กรุณากรอกเลขบัญชี 4 ตัวท้าย')
+    .nullable()
+    .optional(),
+  bankAccountName: z.string().trim().min(1).max(120).nullable().optional(),
 })
 
 export type ProfileInput = z.infer<typeof profileSchema>

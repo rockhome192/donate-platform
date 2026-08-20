@@ -60,6 +60,9 @@ export async function POST(req: Request) {
       isSuspended: true,
       minAmount: true,
       maxAmount: true,
+      bankCode: true,
+      bankAccountLast4: true,
+      bankAccountName: true,
     },
   })
   if (!streamer) {
@@ -73,8 +76,62 @@ export async function POST(req: Request) {
     return Response.json({ error: failure.message, field: failure.field }, { status: failure.status })
   }
 
-  const provider = getPaymentProvider()
   const expiresAt = donationExpiry()
+
+  /*
+    The slip path forks here, before a provider is even asked for.
+
+    There is nothing to create: the donor transfers by hand and comes back with
+    proof, so this route's job ends at a PENDING row and the account to send
+    the money to. Everything that decides whether the money really arrived is
+    in POST /api/donations/{id}/slip.
+
+    The refusal below is layer 3 arriving early. A streamer with no registered
+    account cannot have a slip checked against anything, so offering the option
+    at all would collect a real transfer we could never verify — the one
+    failure that costs a viewer actual money.
+  */
+  if (input.method === 'slip') {
+    if (!streamer.bankCode || !streamer.bankAccountLast4 || !streamer.bankAccountName) {
+      return Response.json(
+        { error: `${streamer.displayName} ยังไม่ได้เปิดรับโอนพร้อมสลิป` },
+        { status: 409 },
+      )
+    }
+
+    const slipDonation = await db.donation.create({
+      data: {
+        streamerId: streamer.id,
+        donorName: input.donorName,
+        message: input.message,
+        amount: input.amount,
+        provider: 'SLIP',
+        status: 'PENDING',
+        expiresAt,
+      },
+      select: { id: true },
+    })
+
+    return Response.json(
+      {
+        donationId: slipDonation.id,
+        method: 'slip',
+        amount: input.amount,
+        expiresAt: expiresAt.toISOString(),
+        // Enough for the donor to make the transfer, and nothing more. The
+        // last four digits are all we hold, which is also all a slip can be
+        // compared against.
+        bankAccount: {
+          bankCode: streamer.bankCode,
+          last4: streamer.bankAccountLast4,
+          name: streamer.bankAccountName,
+        },
+      },
+      { status: 201 },
+    )
+  }
+
+  const provider = getPaymentProvider()
 
   const donation = await db.donation.create({
     data: {
@@ -153,6 +210,9 @@ export async function POST(req: Request) {
   return Response.json(
     {
       donationId: donation.id,
+      // Named so the client never has to infer which flow it is from which
+      // fields happen to be present.
+      method: 'gateway',
       qrImageUrl: charge.qrImageUrl,
       amount: input.amount,
       expiresAt: charge.expiresAt.toISOString(),

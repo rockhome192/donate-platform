@@ -46,6 +46,9 @@ async function loadStreamer(slug: string) {
       isActive: true,
       isSuspended: true,
       minAmount: true,
+      bankCode: true,
+      bankAccountLast4: true,
+      bankAccountName: true,
       maxAmount: true,
     },
   })
@@ -213,6 +216,21 @@ export default async function DonatePage({ params }: Params) {
                     // Read on the server so the button cannot appear on a deploy
                     // where the endpoint behind it 404s.
                     demoMode={env.isDemoMode}
+                    /*
+                      All three or nothing — the route enforces the same rule on
+                      save. Passing a partial account would offer the slip
+                      option on the page and have layer 3 refuse every slip it
+                      produced, which costs a viewer real money to discover.
+                    */
+                    slipAccount={
+                      streamer.bankCode && streamer.bankAccountLast4 && streamer.bankAccountName
+                        ? {
+                            bankCode: streamer.bankCode,
+                            last4: streamer.bankAccountLast4,
+                            name: streamer.bankAccountName,
+                          }
+                        : null
+                    }
                   />
                 )}
               </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createDonationSchema, formatBaht, toBaht, toSatang } from '@dp/shared'
+import { bankName, createDonationSchema, formatBaht, toBaht, toSatang } from '@dp/shared'
 import { ErrorNote, StatusTrack, TechLabel, buttonClass } from '@/components/ui'
 
 /**
@@ -33,14 +33,36 @@ type Props = {
   maxAmount: number
   /** DEMO_MODE=true on the server. Shows the simulated-payment button. */
   demoMode: boolean
+  /**
+   * The streamer's registered destination account, or null when they have not
+   * set one. Null is what closes the slip path: DESIGN.md 7.3 layer 3 cannot
+   * run without it, so offering the option would take a real transfer nobody
+   * could ever verify.
+   */
+  slipAccount: SlipAccount | null
 }
 
-type Created = {
-  donationId: string
-  qrImageUrl: string
-  amount: number
-  expiresAt: string
+export type SlipAccount = {
+  bankCode: string
+  last4: string
+  name: string
 }
+
+type Created =
+  | {
+      method: 'gateway'
+      donationId: string
+      qrImageUrl: string
+      amount: number
+      expiresAt: string
+    }
+  | {
+      method: 'slip'
+      donationId: string
+      amount: number
+      expiresAt: string
+      bankAccount: SlipAccount
+    }
 
 type PollStatus = 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED'
 
@@ -54,6 +76,15 @@ const FIELD_LABEL = 'mb-1.5 block text-label font-semibold text-muted'
 export function DonateForm(props: Props) {
   const [created, setCreated] = useState<Created | null>(null)
 
+  if (created?.method === 'slip') {
+    return (
+      <SlipPanel
+        created={created}
+        displayName={props.displayName}
+        onRestart={() => setCreated(null)}
+      />
+    )
+  }
   if (created) {
     return (
       <QrPanel
@@ -72,6 +103,7 @@ function AmountForm({
   displayName,
   minAmount,
   maxAmount,
+  slipAccount,
   onCreated,
 }: Props & { onCreated: (c: Created) => void }) {
   const [amountText, setAmountText] = useState(String(toBaht(minAmount)))
@@ -80,6 +112,7 @@ function AmountForm({
   const [honeypot, setHoneypot] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [method, setMethod] = useState<'gateway' | 'slip'>('gateway')
 
   const presets = PRESET_BAHT.map((b) => b * 100).filter((s) => s >= minAmount && s <= maxAmount)
 
@@ -102,6 +135,10 @@ function AmountForm({
       donorName: donorName.trim() || 'ผู้ชมนิรนาม',
       message,
       amount,
+      // A streamer can turn the slip path off between page load and submit, and
+      // the route refuses it then — but never send a method the page was not
+      // showing an option for.
+      method: slipAccount ? method : 'gateway',
       website: honeypot,
     })
     if (!parsed.success) {
@@ -244,6 +281,26 @@ function AmountForm({
         min ฿{formatBaht(minAmount)} · max ฿{formatBaht(maxAmount)}
       </p>
 
+      {slipAccount && (
+        <div className="mt-5">
+          <span className={FIELD_LABEL}>วิธีชำระ</span>
+          <div className="grid grid-cols-2 gap-2">
+            <MethodChoice
+              checked={method === 'gateway'}
+              onSelect={() => setMethod('gateway')}
+              title="QR พร้อมเพย์"
+              detail="สแกนจ่าย ระบบรู้เองทันที"
+            />
+            <MethodChoice
+              checked={method === 'slip'}
+              onSelect={() => setMethod('slip')}
+              title="โอนเอง + แนบสลิป"
+              detail="โอนผ่านแอปธนาคาร แล้วอัปสลิป"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Honeypot: off-screen rather than display:none, which some bots skip. */}
       <div aria-hidden className="absolute left-[-9999px] h-0 w-0 overflow-hidden">
         <label htmlFor="website">Website</label>
@@ -284,7 +341,7 @@ function QrPanel({
   demoMode,
   onRestart,
 }: {
-  created: Created
+  created: Extract<Created, { method: 'gateway' }>
   displayName: string
   demoMode: boolean
   onRestart: () => void
@@ -510,4 +567,174 @@ function formatCountdown(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60)
   const s = totalSeconds % 60
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function MethodChoice({
+  checked,
+  onSelect,
+  title,
+  detail,
+}: {
+  checked: boolean
+  onSelect: () => void
+  title: string
+  detail: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={checked}
+      className={`rounded-control border px-3 py-2.5 text-left transition-colors ${
+        checked ? 'border-accent bg-inset' : 'border-line-strong bg-surface hover:border-line'
+      }`}
+    >
+      <span className="block text-label font-semibold text-ink">{title}</span>
+      <span className="mt-0.5 block text-meta text-faint">{detail}</span>
+    </button>
+  )
+}
+
+/**
+ * The slip flow: transfer by hand, then hand us the proof.
+ *
+ * Two things are said out loud here that the QR flow never has to say. The
+ * amount must match to the satang, because layer 4 refuses anything else and
+ * "close enough" is not a thing a bank slip can be. And the slip has to be
+ * recent, because layer 5 refuses one older than fifteen minutes — a rule that
+ * is invisible until it fires, and by then the donor has already paid.
+ *
+ * There is no polling here, unlike QrPanel. The verification IS the response:
+ * by the time this request comes back the donation has either settled or been
+ * refused, so there is nothing to wait for.
+ */
+function SlipPanel({
+  created,
+  displayName,
+  onRestart,
+}: {
+  created: Extract<Created, { method: 'slip' }>
+  displayName: string
+  onRestart: () => void
+}) {
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState<{ alerted: boolean } | null>(null)
+
+  async function sendSlip(file: File) {
+    setError(null)
+    setUploading(true)
+    try {
+      // Base64 in JSON rather than multipart. Both are accepted — checked
+      // against the live API with a real key — and JSON keeps the route on the
+      // same parse path as every other endpoint here.
+      const base64 = await readAsBase64(file)
+      const res = await fetch(`/api/donations/${created.donationId}/slip`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64 }),
+      })
+      const body = await res.json().catch(() => null)
+
+      if (!res.ok) {
+        setError(body?.error ?? `ตรวจสลิปไม่สำเร็จ (${res.status})`)
+        return
+      }
+      setDone({ alerted: Boolean(body?.alerted) })
+    } catch {
+      setError('เชื่อมต่อไม่ได้ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  if (done) {
+    return (
+      <div className="animate-fade-up text-center">
+        <p className="font-display text-h3 font-bold">ขอบคุณสำหรับการโดเนท!</p>
+        <p className="mt-2 text-body text-muted">
+          ตรวจสอบสลิปกับธนาคารเรียบร้อย — ส่ง{' '}
+          <span className="font-numeric text-money">฿{formatBaht(created.amount)}</span> ให้{' '}
+          {displayName} แล้ว
+        </p>
+        <p className="mt-2 text-meta text-faint">
+          {done.alerted
+            ? 'ข้อความของคุณกำลังขึ้นบนหน้าจอสตรีมเมอร์'
+            : 'ยอดนี้ต่ำกว่าที่สตรีมเมอร์ตั้งให้ขึ้นแจ้งเตือน จึงไม่แสดงบนหน้าจอ'}
+        </p>
+        <button type="button" onClick={onRestart} className={`${buttonClass('quiet', 'md')} mt-5`}>
+          โดเนทอีกครั้ง
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="animate-fade-up">
+      <p className="font-display text-h3 font-bold">โอนเงินแล้วแนบสลิป</p>
+
+      <dl className="mt-4 space-y-2 rounded-panel border border-line bg-inset p-4">
+        <Row label="ธนาคาร" value={bankName(created.bankAccount.bankCode)} />
+        <Row label="ชื่อบัญชี" value={created.bankAccount.name} />
+        <Row label="เลขบัญชี" value={`xxx-x-x${created.bankAccount.last4}-x`} numeric />
+        <Row label="ยอดที่ต้องโอน" value={`฿${formatBaht(created.amount)}`} numeric />
+      </dl>
+
+      <p className="mt-3 text-meta text-faint">
+        ยอดต้อง<span className="text-muted">ตรงทุกสตางค์</span> และต้องแนบสลิป
+        <span className="text-muted">ภายใน 15 นาที</span>หลังโอน มิฉะนั้นระบบจะไม่รับ
+      </p>
+
+      <label className={`${buttonClass('primary', 'md', 'w-full')} mt-5 cursor-pointer`}>
+        {uploading ? 'กำลังตรวจสลิป…' : 'เลือกรูปสลิป'}
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="sr-only"
+          disabled={uploading}
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            // Cleared straight away so picking the SAME file again still fires
+            // a change event — otherwise a rejected slip cannot be retried
+            // without choosing something else first.
+            e.target.value = ''
+            if (file) void sendSlip(file)
+          }}
+        />
+      </label>
+
+      {error && (
+        <div className="mt-4">
+          <ErrorNote>{error}</ErrorNote>
+        </div>
+      )}
+
+      <button type="button" onClick={onRestart} className={`${buttonClass('quiet', 'md')} mt-4`}>
+        ยกเลิก
+      </button>
+    </div>
+  )
+}
+
+function Row({ label, value, numeric }: { label: string; value: string; numeric?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4">
+      <dt className="text-label text-faint">{label}</dt>
+      <dd className={`text-body text-ink ${numeric ? 'font-numeric tabular-nums' : ''}`}>{value}</dd>
+    </div>
+  )
+}
+
+/** The `data:` prefix is ours, not the API's — SlipOK wants the payload alone. */
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('could not read file'))
+    reader.onload = () => {
+      const result = String(reader.result)
+      const comma = result.indexOf(',')
+      resolve(comma === -1 ? result : result.slice(comma + 1))
+    }
+    reader.readAsDataURL(file)
+  })
 }

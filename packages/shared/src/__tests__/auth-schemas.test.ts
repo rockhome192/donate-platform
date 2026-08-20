@@ -144,3 +144,55 @@ describe('profileSchema', () => {
     expect(profileSchema.partial().safeParse({}).success).toBe(true)
   })
 })
+
+describe('profileSchema — the bank account', () => {
+  const base = {
+    displayName: 'rockket',
+    slug: 'demo',
+    bio: null,
+    avatarUrl: null,
+    minAmount: 2_000,
+    maxAmount: 10_000_000,
+  }
+
+  it('accepts a profile with no bank account at all', () => {
+    // Most streamers will never set one, and slip donations are simply not
+    // offered on their page.
+    expect(profileSchema.safeParse(base).success).toBe(true)
+  })
+
+  it('NEVER invents a bank field a patch did not send', () => {
+    // The trap this test exists for: `.partial()` does NOT suppress a
+    // `.default()` in this version of Zod, so writing these fields as
+    // `.nullable().default(null)` makes this parse come back carrying
+    // `bankCode: null` — and every unrelated save from the profile form would
+    // silently wipe the streamer's account.
+    const patch = profileSchema.partial().parse({ displayName: 'rockket' })
+    expect('bankCode' in patch).toBe(false)
+    expect('bankAccountLast4' in patch).toBe(false)
+    expect('bankAccountName' in patch).toBe(false)
+  })
+
+  it('lets an account be cleared with an explicit null', () => {
+    const patch = profileSchema.partial().parse({ bankCode: null })
+    expect(patch.bankCode).toBeNull()
+  })
+
+  it.each([['12'], ['1234'], ['abc'], ['']])('rejects %s as a bank code', (bankCode) => {
+    expect(profileSchema.safeParse({ ...base, bankCode }).success).toBe(false)
+  })
+
+  it.each([['788'], ['77889'], ['77x8']])('rejects %s as the last four digits', (last4) => {
+    expect(profileSchema.safeParse({ ...base, bankAccountLast4: last4 }).success).toBe(false)
+  })
+
+  it('accepts a well formed account', () => {
+    const parsed = profileSchema.safeParse({
+      ...base,
+      bankCode: '004',
+      bankAccountLast4: '7788',
+      bankAccountName: 'PHATCHARADANAI T',
+    })
+    expect(parsed.success).toBe(true)
+  })
+})

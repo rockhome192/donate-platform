@@ -34,6 +34,9 @@ const PROFILE_SELECT = {
   avatarUrl: true,
   minAmount: true,
   maxAmount: true,
+  bankCode: true,
+  bankAccountLast4: true,
+  bankAccountName: true,
 } as const
 
 export async function PATCH(req: Request) {
@@ -75,7 +78,13 @@ export async function PATCH(req: Request) {
 
   const current = await db.streamer.findUnique({
     where: { id: session.streamerId },
-    select: { minAmount: true, maxAmount: true },
+    select: {
+      minAmount: true,
+      maxAmount: true,
+      bankCode: true,
+      bankAccountLast4: true,
+      bankAccountName: true,
+    },
   })
   if (!current) {
     // The session says this streamer exists and the row does not — the account
@@ -119,6 +128,36 @@ export async function PATCH(req: Request) {
         // Point at the field the caller actually sent. A patch carrying only
         // maxAmount blamed minAmount, which is a field that is not on screen.
         field: patch.maxAmount !== undefined && patch.minAmount === undefined ? 'maxAmount' : 'minAmount',
+      },
+      { status: 400, headers: NO_STORE },
+    )
+  }
+
+  /*
+    A bank account is all three fields or none of them.
+
+    The same reasoning as the min/max check above: a partial PATCH can carry
+    one field, the schema cannot see the stored value of the other two, so the
+    comparison has to be against the row as it currently is. What makes this
+    one worth refusing rather than tolerating is layer 3 of DESIGN.md 7.3 — it
+    compares a slip's receiver against `bankCode` AND `bankAccountLast4`, and
+    fails closed if either is missing. A streamer who saved two of the three
+    would see slip donations offered on their page and every one of them
+    refused, with nothing on the settings form to explain why.
+  */
+  const bank = {
+    bankCode: patch.bankCode !== undefined ? patch.bankCode : current.bankCode,
+    bankAccountLast4:
+      patch.bankAccountLast4 !== undefined ? patch.bankAccountLast4 : current.bankAccountLast4,
+    bankAccountName:
+      patch.bankAccountName !== undefined ? patch.bankAccountName : current.bankAccountName,
+  }
+  const filled = Object.values(bank).filter((v) => v !== null).length
+  if (filled !== 0 && filled !== 3) {
+    return Response.json(
+      {
+        error: 'กรอกบัญชีรับโอนให้ครบทั้งธนาคาร เลข 4 ตัวท้าย และชื่อบัญชี หรือเว้นว่างทั้งหมด',
+        field: bank.bankCode === null ? 'bankCode' : bank.bankAccountLast4 === null ? 'bankAccountLast4' : 'bankAccountName',
       },
       { status: 400, headers: NO_STORE },
     )
