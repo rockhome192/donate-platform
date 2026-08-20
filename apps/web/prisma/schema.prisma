@@ -73,6 +73,14 @@ model Streamer {
   minAmount   Int      @default(2000)
   maxAmount   Int      @default(10000000)
 
+  /// Where a slip-verified transfer must have landed — layer 3 of DESIGN.md
+  /// 7.3 compares the verifier's answer against these. Only the last four
+  /// digits are kept: a demo has no reason to hold a full account number, and
+  /// what it never stores it can never leak.
+  bankCode         String? @db.VarChar(3)
+  bankAccountLast4 String? @db.VarChar(4)
+  bankAccountName  String? @db.VarChar(120)
+
   /// Long-lived secret in the OBS Browser Source URL. Only ever grants the
   /// overlay page + a 60s ticket; never a session. Rotatable.
   overlayToken   String   @unique @default(cuid())
