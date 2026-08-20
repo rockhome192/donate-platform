@@ -1,4 +1,4 @@
-import { profileSchema } from '@dp/shared'
+import { profileSchema, promptPayPayload } from '@dp/shared'
 import { requireStreamer, sessionErrorResponse } from '@/lib/api-session'
 import { db, uniqueViolationTargets } from '@/lib/db'
 import { rateLimit } from '@/lib/rate-limit'
@@ -37,6 +37,7 @@ const PROFILE_SELECT = {
   bankCode: true,
   bankAccountLast4: true,
   bankAccountName: true,
+  promptPayId: true,
 } as const
 
 export async function PATCH(req: Request) {
@@ -84,6 +85,7 @@ export async function PATCH(req: Request) {
       bankCode: true,
       bankAccountLast4: true,
       bankAccountName: true,
+      promptPayId: true,
     },
   })
   if (!current) {
@@ -151,16 +153,42 @@ export async function PATCH(req: Request) {
       patch.bankAccountLast4 !== undefined ? patch.bankAccountLast4 : current.bankAccountLast4,
     bankAccountName:
       patch.bankAccountName !== undefined ? patch.bankAccountName : current.bankAccountName,
+    promptPayId: patch.promptPayId !== undefined ? patch.promptPayId : current.promptPayId,
   }
   const filled = Object.values(bank).filter((v) => v !== null).length
-  if (filled !== 0 && filled !== 3) {
+  if (filled !== 0 && filled !== 4) {
     return Response.json(
       {
-        error: 'กรอกบัญชีรับโอนให้ครบทั้งธนาคาร เลข 4 ตัวท้าย และชื่อบัญชี หรือเว้นว่างทั้งหมด',
-        field: bank.bankCode === null ? 'bankCode' : bank.bankAccountLast4 === null ? 'bankAccountLast4' : 'bankAccountName',
+        error:
+          'กรอกข้อมูลรับโอนให้ครบทั้งพร้อมเพย์ ธนาคาร เลข 4 ตัวท้าย และชื่อบัญชี หรือเว้นว่างทั้งหมด',
+        // Point at a field the caller can actually see is empty.
+        field:
+          (Object.entries(bank).find(([, v]) => v === null)?.[0] as string | undefined) ?? 'bankCode',
       },
       { status: 400, headers: NO_STORE },
     )
+  }
+
+  /*
+    A PromptPay id that cannot become a QR is worse than none: the donate page
+    would offer the option and then render nothing to scan. `promptPayPayload`
+    returns null for exactly the ids it cannot encode, so ask it rather than
+    re-implementing its rules here.
+  */
+  if (bank.promptPayId) {
+    const usable = promptPayPayload(
+      { type: 'phone', value: bank.promptPayId },
+      100,
+    )
+    if (!usable) {
+      return Response.json(
+        {
+          error: 'เบอร์พร้อมเพย์ไม่ถูกต้อง ต้องเป็นเบอร์มือถือ 10 หลัก (06 / 08 / 09)',
+          field: 'promptPayId',
+        },
+        { status: 400, headers: NO_STORE },
+      )
+    }
   }
 
   try {

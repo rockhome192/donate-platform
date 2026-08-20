@@ -62,6 +62,8 @@ type Created =
       amount: number
       expiresAt: string
       bankAccount: SlipAccount
+      /** A REAL PromptPay QR with the amount in it — see the donations route. */
+      qrImageUrl: string
     }
 
 type PollStatus = 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED'
@@ -697,13 +699,40 @@ function SlipPanel({
 
   return (
     <div className="animate-fade-up">
-      <p className="font-display text-h3 font-bold">โอนเงินแล้วแนบสลิป</p>
+      <p className="font-display text-h3 font-bold">สแกนโอน แล้วแนบสลิป</p>
 
+      {/*
+        The QR carries the amount, so there is nothing for the donor to type —
+        which matters more here than it looks: layer 4 refuses a slip whose
+        amount is off by a single satang.
+      */}
+      <div className="mx-auto mt-4 w-fit max-w-full rounded-panel bg-white p-4">
+        <p className="mb-3 font-mono text-meta font-bold tracking-wide text-[#0a4ea3]">
+          THAI QR · PROMPTPAY
+        </p>
+        {/* eslint-disable-next-line @next/next/no-img-element -- data: URI, nothing for the optimiser to fetch */}
+        <img
+          src={created.qrImageUrl}
+          alt={`QR พร้อมเพย์ ${formatBaht(created.amount)} บาท`}
+          width={200}
+          height={200}
+          className="mx-auto block size-50"
+        />
+        <p className="mt-3 text-center font-numeric text-h3 font-bold tabular-nums text-[#0c0d13]">
+          ฿{formatBaht(created.amount)}
+        </p>
+      </div>
+
+      {/*
+        Shown so the donor can check the name their banking app is about to
+        display against the one this page claims, BEFORE they confirm. The
+        account number stays masked — it is all we store, and the QR means
+        nobody needs to read it anyway.
+      */}
       <dl className="mt-4 space-y-2 rounded-panel border border-line bg-inset p-4">
+        <Row label="เข้าบัญชี" value={created.bankAccount.name} />
         <Row label="ธนาคาร" value={bankName(created.bankAccount.bankCode)} />
-        <Row label="ชื่อบัญชี" value={created.bankAccount.name} />
         <Row label="เลขบัญชี" value={`xxx-x-x${created.bankAccount.last4}-x`} numeric />
-        <Row label="ยอดที่ต้องโอน" value={`฿${formatBaht(created.amount)}`} numeric />
       </dl>
 
       {/*

@@ -31,6 +31,7 @@ export type ProfileInitial = {
   bankCode: string | null
   bankAccountLast4: string | null
   bankAccountName: string | null
+  promptPayId: string | null
 }
 
 type Props = {
@@ -58,6 +59,7 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
   const [bankCode, setBankCode] = useState(initial.bankCode ?? '')
   const [bankLast4, setBankLast4] = useState(initial.bankAccountLast4 ?? '')
   const [bankName, setBankName] = useState(initial.bankAccountName ?? '')
+  const [ppId, setPpId] = useState(initial.promptPayId ?? '')
 
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -76,7 +78,8 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
     maxAmount !== initial.maxAmount ||
     bankCode !== (initial.bankCode ?? '') ||
     bankLast4 !== (initial.bankAccountLast4 ?? '') ||
-    bankName !== (initial.bankAccountName ?? '')
+    bankName !== (initial.bankAccountName ?? '') ||
+    ppId !== (initial.promptPayId ?? '')
 
   async function pickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -163,6 +166,7 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
       ...(bankName !== (initial.bankAccountName ?? '') && {
         bankAccountName: bankName || null,
       }),
+      ...(ppId !== (initial.promptPayId ?? '') && { promptPayId: ppId || null }),
     }
 
     const parsed = profileSchema.partial().safeParse(patch)
@@ -176,9 +180,9 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
     }
     // Mirrors the route's rule so the answer arrives without a round trip. The
     // route still enforces it — this is convenience, not the check.
-    const bankFilled = [bankCode, bankLast4, bankName].filter((v) => v !== '').length
-    if (bankFilled !== 0 && bankFilled !== 3) {
-      setError('กรอกบัญชีรับโอนให้ครบทั้ง 3 ช่อง หรือเว้นว่างทั้งหมด')
+    const bankFilled = [bankCode, bankLast4, bankName, ppId].filter((v) => v !== '').length
+    if (bankFilled !== 0 && bankFilled !== 4) {
+      setError('กรอกข้อมูลรับโอนให้ครบทุกช่อง หรือเว้นว่างทั้งหมด')
       return
     }
 
@@ -347,11 +351,40 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
           </div>
 
           <div className="border-t border-line pt-4">
-            <span className={LABEL}>บัญชีรับโอน (สำหรับโดเนทแบบแนบสลิป)</span>
+            <span className={LABEL}>รับโอนพร้อมสลิป</span>
             <p className="mb-3 text-meta text-faint">
-              เว้นว่างไว้ = ปิดรับโอนพร้อมสลิป หน้าโดเนทจะเหลือแค่ QR
-              เก็บแค่ <span className="text-muted">4 ตัวท้าย</span> เพราะสลิปที่ธนาคารส่งมาก็ปิดเลขบัญชีไว้อยู่แล้ว
+              เว้นว่างทั้งหมด = ปิดรับ หน้าโดเนทจะเหลือแค่ QR จำลอง
+              <br />
+              <span className="text-muted">พร้อมเพย์</span> คือปลายทางที่ QR
+              บนหน้าโดเนทจะพาไป ส่วน <span className="text-muted">ธนาคาร + 4 ตัวท้าย</span>{' '}
+              คือสิ่งที่ระบบเอาไปเทียบกับสลิป — ต้องเป็นบัญชีเดียวกัน
             </p>
+            <div className="mb-3">
+              <label htmlFor="promptPayId" className={LABEL}>
+                เบอร์พร้อมเพย์
+              </label>
+              <input
+                id="promptPayId"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="0812345678"
+                value={ppId}
+                onChange={(e) => setPpId(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                className={`${FIELD} font-numeric tabular-nums`}
+              />
+              {/*
+                Said plainly, at the field, before it is typed. A PromptPay QR
+                has to carry this number in the clear or a bank cannot read it,
+                and one unauthenticated request to /api/donations returns that
+                QR — so this is public the moment it is saved.
+              */}
+              <p className="mt-1.5 text-meta text-faint">
+                เบอร์นี้จะ<span className="text-muted">อ่านได้จาก QR บนหน้าโดเนท</span>{' '}
+                ใครสแกนก็เห็น — เป็นข้อจำกัดของพร้อมเพย์เอง ไม่ใช่ของเว็บนี้
+                <br />
+                รองรับเฉพาะเบอร์มือถือ ไม่รับเลขบัตรประชาชน
+              </p>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <label htmlFor="bankCode" className={LABEL}>

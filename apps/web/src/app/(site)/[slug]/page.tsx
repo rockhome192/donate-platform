@@ -46,6 +46,7 @@ async function loadStreamer(slug: string) {
       isActive: true,
       isSuspended: true,
       minAmount: true,
+      promptPayId: true,
       bankCode: true,
       bankAccountLast4: true,
       bankAccountName: true,
@@ -223,7 +224,10 @@ export default async function DonatePage({ params }: Params) {
                       produced, which costs a viewer real money to discover.
                     */
                     slipAccount={
-                      streamer.bankCode && streamer.bankAccountLast4 && streamer.bankAccountName
+                      streamer.bankCode &&
+                      streamer.bankAccountLast4 &&
+                      streamer.bankAccountName &&
+                      streamer.promptPayId
                         ? {
                             bankCode: streamer.bankCode,
                             last4: streamer.bankAccountLast4,

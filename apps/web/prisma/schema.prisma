@@ -73,7 +73,17 @@ model Streamer {
   minAmount   Int      @default(2000)
   maxAmount   Int      @default(10000000)
 
-  /// Where a slip-verified transfer must have landed — layer 3 of DESIGN.md
+  /// How a donor SENDS the money: the PromptPay mobile number behind the QR on
+  /// the donate page. Without it there is nothing to transfer to — four masked
+  /// digits are not an account anybody can pay.
+  ///
+  /// Mobile numbers only. A PromptPay QR has to carry this in cleartext for a
+  /// bank to read it, and one unauthenticated request to /api/donations returns
+  /// that QR — so a national id here would be a national id handed to anyone
+  /// who clicks donate once. There is no column for one.
+  promptPayId String? @db.VarChar(20)
+
+  /// Where a slip-verified transfer must have LANDED — layer 3 of DESIGN.md
   /// 7.3 compares the verifier's answer against these. Only the last four
   /// digits are kept: a demo has no reason to hold a full account number, and
   /// what it never stores it can never leak.

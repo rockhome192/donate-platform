@@ -53,6 +53,7 @@ export default async function ProfilePage() {
       bankCode: true,
       bankAccountLast4: true,
       bankAccountName: true,
+      promptPayId: true,
       maxAmount: true,
     },
   })

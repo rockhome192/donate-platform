@@ -1,4 +1,5 @@
-import { createDonationSchema, isHoneypotFilled } from '@dp/shared'
+import { createDonationSchema, isHoneypotFilled, promptPayPayload } from '@dp/shared'
+import QRCode from 'qrcode'
 import { db } from '@/lib/db'
 import { checkStreamerRules, donationExpiry } from '@/lib/donation-rules'
 import { getPaymentProvider, ProviderUnavailableError } from '@/lib/payments'
@@ -60,6 +61,7 @@ export async function POST(req: Request) {
       isSuspended: true,
       minAmount: true,
       maxAmount: true,
+      promptPayId: true,
       bankCode: true,
       bankAccountLast4: true,
       bankAccountName: true,
@@ -92,11 +94,59 @@ export async function POST(req: Request) {
     failure that costs a viewer actual money.
   */
   if (input.method === 'slip') {
-    if (!streamer.bankCode || !streamer.bankAccountLast4 || !streamer.bankAccountName) {
+    if (
+      !streamer.bankCode ||
+      !streamer.bankAccountLast4 ||
+      !streamer.bankAccountName ||
+      !streamer.promptPayId
+    ) {
       return Response.json(
         { error: `${streamer.displayName} ยังไม่ได้เปิดรับโอนพร้อมสลิป` },
         { status: 409 },
       )
+    }
+
+    /*
+      A REAL QR, unlike the gateway path's deliberate placeholder — and the
+      difference is the point. Nothing is charged on the gateway path, so a
+      scannable QR there would be the one thing DESIGN.md 0 forbids. Here the
+      money genuinely moves, so a QR that cannot be scanned would be the lie.
+
+      The amount is baked in because layer 4 refuses a slip that is off by a
+      satang. Asking a donor to type the figure by hand is asking them to lose
+      money to a typo.
+    */
+    const payload = promptPayPayload(
+      {
+        type: 'phone',
+        value: streamer.promptPayId,
+      },
+      input.amount,
+    )
+    if (!payload) {
+      // The save path already refuses an unencodable id, so reaching this
+      // means the row predates that check or was written around it.
+      console.error(`[donations] streamer ${streamer.id} has an unencodable PromptPay id`)
+      return Response.json(
+        { error: 'ระบบสร้าง QR ไม่สำเร็จ กรุณาลองใหม่' },
+        { status: 503 },
+      )
+    }
+
+    // Wrapped so an encoder failure answers like every other failure on this
+    // route rather than falling out as an unhandled 500. It should not throw
+    // for a payload this size and shape; "should not" is not a reason to let
+    // it take the route's error contract with it if it does.
+    let qrImageUrl: string
+    try {
+      qrImageUrl = await QRCode.toDataURL(payload, {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: 480,
+      })
+    } catch (e) {
+      console.error(`[donations] could not encode PromptPay QR for ${streamer.id}`, e)
+      return Response.json({ error: 'ระบบสร้าง QR ไม่สำเร็จ กรุณาลองใหม่' }, { status: 503 })
     }
 
     const slipDonation = await db.donation.create({
@@ -118,6 +168,7 @@ export async function POST(req: Request) {
         method: 'slip',
         amount: input.amount,
         expiresAt: expiresAt.toISOString(),
+        qrImageUrl,
         // Enough for the donor to make the transfer, and nothing more. The
         // last four digits are all we hold, which is also all a slip can be
         // compared against.

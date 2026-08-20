@@ -293,6 +293,17 @@ export const profileSchema = z.object({
     .nullable()
     .optional(),
   bankAccountName: z.string().trim().min(1).max(120).nullable().optional(),
+
+  /**
+   * How the money is SENT, as opposed to where it lands. The QR on the donate
+   * page is generated from this — four masked digits are not something anybody
+   * can transfer to, so without it the slip option is unusable rather than
+   * merely unverifiable.
+   *
+   * Both id kinds are thirteen digits, so the type cannot be inferred and is
+   * stored beside the value.
+   */
+  promptPayId: z.string().trim().min(9).max(20).nullable().optional(),
 })
 
 export type ProfileInput = z.infer<typeof profileSchema>
