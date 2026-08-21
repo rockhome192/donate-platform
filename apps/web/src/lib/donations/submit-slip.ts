@@ -1,7 +1,6 @@
 import { db, isUniqueViolation } from '@/lib/db'
 import { env } from '@/lib/env'
-import { checkSlipAgainstDonation, getSlipVerifier } from '@/lib/payments/slip'
-import { lastFourDigits } from '@/lib/payments/slipok'
+import { checkSlipAgainstDonation, getSlipVerifier, lastFourDigits } from '@/lib/payments/slip'
 import {
   SlipRejectedError,
   SlipVerifierUnavailableError,
@@ -100,6 +99,10 @@ const REJECTION_RESPONSES = {
 
     They shared one code once, and it cost three rounds of debugging a check
     that had never run.
+
+    Reachable only under SLIP_VERIFIER=slipok. EasySlip has no receiver
+    binding and therefore no code that maps here — which is the whole reason
+    a second streamer can be served at all.
   */
   wrong_receiver: {
     status: 422,
@@ -239,20 +242,27 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
   }
 
   // ---- Layer 1: ask an upstream that actually asked the bank ---------------
+  const verifier = getSlipVerifier()
+  // Named in the diagnostics below because the two adapters refuse for
+  // different reasons, and "rejected" without the vendor sent one debugging
+  // session looking for a SlipOK code in an EasySlip response.
+  const verifierName = verifier.name
   let facts
   try {
-    facts = await getSlipVerifier().verify(input.slip)
+    facts = await verifier.verify(input.slip)
   } catch (e) {
     if (e instanceof SlipRejectedError) {
       // The upstream's own words, which are the only clue to a rejection that
       // happened before any of our checks could run.
-      console.warn(`[slip] upstream rejected donation ${input.donationId}: ${e.reason} — ${e.message}`)
+      console.warn(
+        `[slip] ${verifierName} rejected donation ${input.donationId}: ${e.reason} — ${e.message}`,
+      )
       const response = REJECTION_RESPONSES[e.reason]
       return {
         ok: false,
         ...response,
         message: SLIP_DEBUG
-          ? `${response.message} [dev: SlipOK ปฏิเสธเอง — ${e.reason}: ${e.message}]`
+          ? `${response.message} [dev: ${verifierName} ปฏิเสธเอง — ${e.reason}: ${e.message}]`
           : response.message,
       }
     }

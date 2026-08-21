@@ -90,6 +90,15 @@ export const env = {
   },
 
   /**
+   * EasySlip. One key, no branch id in the URL, and — the reason this vendor
+   * is here at all — no bank account bound to it, so one key serves every
+   * streamer on the deployment. See `payments/easyslip.ts`.
+   */
+  get easyslipApiKey() {
+    return required('EASYSLIP_API_KEY')
+  },
+
+  /**
    * Shared bearer for POST /api/cron/reconcile. Vercel Cron sends it as
    * `Authorization: Bearer $CRON_SECRET`; apps/realtime uses the same header.
    */

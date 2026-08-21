@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlipRejectedError, SlipVerifierUnavailableError } from '../payments/slip-types'
-import { lastFourDigits, parseFacts, SlipOkVerifier } from '../payments/slipok'
+import { parseFacts, SlipOkVerifier } from '../payments/slipok'
 
 /**
  * The SlipOK adapter.
@@ -92,24 +92,6 @@ describe('parseFacts — units and masking', () => {
   it('refuses a response with no data object', () => {
     expect(() => parseFacts(null)).toThrow(SlipVerifierUnavailableError)
   })
-})
-
-describe('lastFourDigits — fails closed', () => {
-  it.each([
-    ['xxx-x-x7788-x', '7788'],
-    ['1234567890', '7890'],
-    ['xxxx7788', '7788'],
-  ])('reads %s as %s', (masked, expected) => {
-    expect(lastFourDigits(masked)).toBe(expected)
-  })
-
-  it.each([['xxx-x-x78-x'], ['xxxxxxx'], [''], [null], [undefined], [1234]])(
-    'returns null rather than a short match for %s',
-    (masked) => {
-      // A two-digit "match" is not a match, and layer 3 refuses on null.
-      expect(lastFourDigits(masked)).toBeNull()
-    },
-  )
 })
 
 describe('SlipOkVerifier — the request', () => {

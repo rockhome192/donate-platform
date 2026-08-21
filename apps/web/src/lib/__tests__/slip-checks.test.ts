@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkSlipAgainstDonation,
+  lastFourDigits,
   SLIP_FUTURE_SKEW_MS,
   SLIP_MAX_AGE_MS,
 } from '../payments/slip-checks'
@@ -331,4 +332,25 @@ describe('layer 3 — the same name in two scripts', () => {
     )
     expect(result?.code).toBe('receiver_name_mismatch')
   })
+})
+
+describe('lastFourDigits — fails closed', () => {
+  // Lives here rather than in an adapter's test file because BOTH sides of
+  // layer 3's comparison run through it: the slip's masked value, and the
+  // streamer's own registered number in `submit-slip.ts`.
+  it.each([
+    ['xxx-x-x7788-x', '7788'],
+    ['1234567890', '7890'],
+    ['xxxx7788', '7788'],
+  ])('reads %s as %s', (masked, expected) => {
+    expect(lastFourDigits(masked)).toBe(expected)
+  })
+
+  it.each([['xxx-x-x78-x'], ['xxxxxxx'], [''], [null], [undefined], [1234]])(
+    'returns null rather than a short match for %s',
+    (masked) => {
+      // A two-digit "match" is not a match, and layer 3 refuses on null.
+      expect(lastFourDigits(masked)).toBeNull()
+    },
+  )
 })

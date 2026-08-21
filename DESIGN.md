@@ -62,7 +62,7 @@
 
 ### 2.2 Phase 2 — ถ้ามีเวลา
 
-- Slip verification adapter (SlipOK) — ดูหัวข้อ 7.3
+- Slip verification adapter (SlipOK / EasySlip) — ดูหัวข้อ 7.3
 - TTS อ่านข้อความโดเนท
 - Goal bar / leaderboard overlay
 - แพ็กเกจ Basic/Pro (จำลอง ไม่เก็บเงินจริง)
@@ -604,6 +604,11 @@ CRC ก็ไม่ใช่ลายเซ็นดิจิทัล (ISO/IEC 
 
 ถ้าจะทำ slip adapter จริง ใช้ **SlipOK** (บุคคลธรรมดาสมัครผ่าน LINE ได้ มี free tier ~100 สลิป/เดือน) แล้วต้องมีครบ 6 ชั้น:
 
+> **ข้อจำกัดที่เจอตอนทำจริง:** branch ของ SlipOK ผูกกับ **บัญชีผู้รับเดียว** สลิปที่โอนเข้าบัญชีอื่น
+> โดนปฏิเสธด้วย **1014** ก่อนชั้น 3 จะได้ทำงาน — แปลว่ารองรับได้สตรีมเมอร์เดียวต่อดีพลอย
+> ทางออกคือ **EasySlip v2** ที่ไม่ผูกกับบัญชีผู้รับ (`apps/web/src/lib/payments/easyslip.ts`)
+> ชั้น 3–6 ทั้งหมดเหมือนเดิม เพราะการตรวจบัญชีปลายทางเป็นงานของเราอยู่แล้ว ไม่ใช่ของ vendor
+
 ```ts
 export interface SlipVerifier {
   verify(input: { payload: string } | { imageBase64: string }): Promise<{
@@ -1109,7 +1114,8 @@ webhook + idempotency เป็นจุดขายหลักเท่าก�
 - [Omise — Testing (test mode, Mark as Successful)](https://docs.omise.co/api-testing)
 - [Omise — Webhooks](https://docs.opn.ooo/api-webhooks)
 - [SCB — Extracting data from mini QR (สเปกสลิป)](https://developer.scb/assets/documents/documentation/qr-payment/extracting-data-from-mini-qr.pdf)
-- [SlipOK API](https://slipok.com/api/)
+- [SlipOK API](https://slipok.com/api/) — ผูกกับบัญชีผู้รับต่อ branch (โค้ด 1014)
+- [EasySlip API v2](https://document.easyslip.com/) — ไม่ผูกกับบัญชีผู้รับ จึงใช้กับหลายสตรีมเมอร์ได้
 - [Vercel Functions Limits](https://vercel.com/docs/functions/limitations) — ที่มาของข้อจำกัด 60 วิ
 - [`ws` — Node.js WebSocket library](https://github.com/websockets/ws) — ดูตัวอย่าง heartbeat ใน README ของเขา
 - [RFC 6455 — The WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455) — ช่วง close code 4000–4999

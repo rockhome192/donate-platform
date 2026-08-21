@@ -255,3 +255,22 @@ export function checkSlipAgainstDonation(
 
   return null
 }
+
+/**
+ * The four digits a bank left visible in a masked account or PromptPay id.
+ *
+ * Null rather than a short string when there are not four to read: layer 3
+ * fails closed on null, and a two-digit "match" is not a match.
+ *
+ * It lives HERE, beside the comparison it feeds, rather than inside an
+ * adapter, because both sides of that comparison have to be extracted the same
+ * way — `submit-slip.ts` runs the streamer's own registered number through it
+ * too. It moved out of `slipok.ts` when a second adapter appeared and started
+ * importing it from there, which would have made one vendor's file the
+ * definition of a rule that is not about that vendor.
+ */
+export function lastFourDigits(masked: unknown): string | null {
+  if (typeof masked !== 'string') return null
+  const digits = masked.replace(/\D/g, '')
+  return digits.length >= 4 ? digits.slice(-4) : null
+}

@@ -76,7 +76,7 @@ export type SlipFacts = {
 export type SlipInput = { qrPayload: string } | { imageBase64: string }
 
 export interface SlipVerifier {
-  readonly name: 'slipok' | 'fake'
+  readonly name: 'slipok' | 'easyslip' | 'fake'
   verify(input: SlipInput): Promise<SlipFacts>
 }
 

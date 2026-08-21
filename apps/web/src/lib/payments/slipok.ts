@@ -1,4 +1,5 @@
 import { env } from '../env'
+import { lastFourDigits } from './slip-checks'
 import {
   SlipRejectedError,
   SlipVerifierUnavailableError,
@@ -174,14 +175,3 @@ export function parseFacts(data: unknown): SlipFacts {
     transferredAt,
   }
 }
-
-/**
- * Null rather than a short string when there are not four digits to read:
- * layer 3 fails closed on null, and a two-digit "match" is not a match.
- */
-export function lastFourDigits(masked: unknown): string | null {
-  if (typeof masked !== 'string') return null
-  const digits = masked.replace(/\D/g, '')
-  return digits.length >= 4 ? digits.slice(-4) : null
-}
-
