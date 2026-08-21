@@ -35,10 +35,12 @@ import {
  * against the account the streamer registered in their own profile. This
  * adapter's job is only to report what the bank said.
  *
- * NOT YET RUN AGAINST THE LIVE API. Everything here is read off the docs, and
- * the Omise adapter is the standing reminder of what a spec-only adapter is
- * worth — see `parseFacts` for the one field a real slip still has to settle
- * before `SLIP_VERIFIER=easyslip` can be trusted in production.
+ * Run against the live API on 2026-08-21: a real ฿20 PromptPay transfer was
+ * verified through this adapter and settled a donation to PAID, which means
+ * every layer downstream of here read what it expected. What that one slip
+ * does NOT establish is in `parseFacts` — it covered one receiving bank and,
+ * because the app only ever prints a PromptPay QR, only the proxy branch of
+ * layer 3.
  */
 
 const VERIFY_URL = 'https://api.easyslip.com/v2/verify/bank'
@@ -182,11 +184,18 @@ export class EasySlipVerifier implements SlipVerifier {
  * four and can never equal the streamer's. That reads as a mismatch, which is
  * the wrong accusation to make at a donor who paid correctly.
  *
- * It is left alone regardless, because the extraction MUST stay identical on
- * both sides of layer 3's comparison — `submit-slip.ts` runs the streamer's
- * own number through this same function — and because a doc example is not
- * evidence about a bank. Confirm it with SLIP_DEBUG=true on the first real
- * slip, which prints both sides, before this verifier goes near production.
+ * The first real slip settled that fear, and against the doc: on 2026-08-21 a
+ * PromptPay transfer passed layer 3, which it could only do if the four digits
+ * read out of the proxy equalled the streamer's own. So the masking a bank
+ * really sends does leave the last four readable, and `08xxxxxxxx89` is a
+ * made-up figure in a doc rather than something a bank produces.
+ *
+ * One slip is not every bank. The mask is written by the app the PAYER used,
+ * so a slip from another bank could still arrive shaped differently, and this
+ * extraction has to stay identical on both sides of layer 3's comparison
+ * anyway — `submit-slip.ts` runs the streamer's own number through this same
+ * function. SLIP_DEBUG=true prints both sides; leave it on and read the next
+ * few real slips before calling the masking settled for good.
  */
 export function parseFacts(data: unknown): SlipFacts {
   if (typeof data !== 'object' || data === null) {

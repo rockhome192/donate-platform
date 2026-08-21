@@ -5,13 +5,14 @@ import { SlipRejectedError, SlipVerifierUnavailableError } from '../payments/sli
 /**
  * The EasySlip adapter.
  *
- * Unlike `slipok.test.ts`, none of this was confirmed against the live API —
- * the shapes come from document.easyslip.com, read 2026-08-21. So these tests
- * are honest about what they prove: they pin the TRANSLATION (their vocabulary
- * into ours, baht into satang, two name scripts into a list) and the
- * whose-fault-is-it split. They prove nothing about whether the upstream
- * really answers this way, and a green run here is not permission to point
- * production at it.
+ * The shapes here come from document.easyslip.com, read 2026-08-21, and what
+ * they pin is the TRANSLATION — their vocabulary into ours, baht into satang,
+ * two name scripts into a list — plus the whose-fault-is-it split.
+ *
+ * A real ฿20 PromptPay slip went through the live API the same day and settled
+ * a donation, so the happy path is no longer only asserted here. These tests
+ * still cannot prove the upstream answers this way for every bank: they are
+ * fixtures, and the one live slip covered one bank on the proxy path.
  *
  * The one behaviour worth stating outright, because it is why this adapter
  * exists: EasySlip has NO receiver binding, so there is no `wrong_receiver`
