@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Route } from 'next'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
@@ -62,7 +62,30 @@ export default async function DashboardPage({ searchParams }: Props) {
     )
   }
 
-  const page = parsePage((await searchParams).page)
+  const params = await searchParams
+  const page = parsePage(params.page)
+  /*
+    EXPIRED is hidden unless asked for, and it is the only status that is.
+
+    The others are all things that HAPPENED and that a streamer may have to
+    answer for: PENDING is the viewer messaging "I already transferred", FAILED
+    and REFUNDED are money. EXPIRED is a QR nobody paid before it timed out —
+    the absence of an event — and on this deployment it is more than half of
+    every row, which turns the list into a graveyard nobody reads.
+
+    Hidden, not deleted. The toggle is one link away and the URL says which view
+    you are looking at, so nothing about the account is unreachable.
+  */
+  const showAll = params.all === '1'
+  const listWhere = showAll
+    ? { streamerId }
+    : { streamerId, status: { not: 'EXPIRED' as const } }
+  // `Route` because typed routes will not take a plain string, and the query
+  // here is assembled rather than written out.
+  const pageHref = (n: number): Route => {
+    const q = [n > 1 ? `page=${n}` : '', showAll ? 'all=1' : ''].filter(Boolean).join('&')
+    return (q ? `/dashboard?${q}` : '/dashboard') as Route
+  }
   const now = new Date()
   const todayStart = bangkokDayStart(now)
   const windowStart = new Date(todayStart.getTime() - (DASHBOARD_DAYS - 1) * 86_400_000)
@@ -83,7 +106,7 @@ export default async function DashboardPage({ searchParams }: Props) {
       select: { slug: true, displayName: true, minAmount: true, maxAmount: true },
     }),
     db.donation.findMany({
-      where: { streamerId },
+      where: listWhere,
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
@@ -96,7 +119,9 @@ export default async function DashboardPage({ searchParams }: Props) {
         createdAt: true,
       },
     }),
-    db.donation.count({ where: { streamerId } }),
+    // The same filter as the list, or the pager counts rows the list will not
+    // show and offers a last page that comes back empty.
+    db.donation.count({ where: listWhere }),
     db.donation.aggregate({
       where: { streamerId, status: 'PAID' },
       _sum: { amount: true },
@@ -191,11 +216,22 @@ export default async function DashboardPage({ searchParams }: Props) {
         <PanelHeader
           label="รายการล่าสุด"
           right={
-            donations.length > 0 ? (
-              <span className="font-mono text-micro tabular-nums text-faint">
-                {firstIndex + 1}–{firstIndex + donations.length} / {totalCount}
-              </span>
-            ) : undefined
+            <span className="flex items-center gap-3">
+              {donations.length > 0 && (
+                <span className="font-mono text-micro tabular-nums text-faint">
+                  {firstIndex + 1}–{firstIndex + donations.length} / {totalCount}
+                </span>
+              )}
+              {/* Says which view this is, not just what the other one would be —
+                  a lone "แสดงทั้งหมด" leaves the reader unsure whether they are
+                  already looking at everything. */}
+              <Link
+                href={showAll ? '/dashboard' : '/dashboard?all=1'}
+                className="font-mono text-micro text-muted underline underline-offset-4 transition-colors hover:text-ink"
+              >
+                {showAll ? 'ซ่อนที่หมดอายุ' : 'แสดงทั้งหมด'}
+              </Link>
+            </span>
           }
         />
 
@@ -206,7 +242,7 @@ export default async function DashboardPage({ searchParams }: Props) {
           page > 1 ? (
             <div className="px-5 py-10 text-center">
               <p className="text-label text-muted">ไม่มีรายการในหน้านี้</p>
-              <Link href="/dashboard" className={buttonClass('secondary', 'sm', 'mt-5')}>
+              <Link href={pageHref(1)} className={buttonClass('secondary', 'sm', 'mt-5')}>
                 กลับหน้าแรกของรายการ
               </Link>
             </div>
@@ -258,7 +294,7 @@ export default async function DashboardPage({ searchParams }: Props) {
         <nav className="mt-4 flex items-center justify-between gap-3" aria-label="หน้ารายการ">
           {page > 1 ? (
             <Link
-              href={page === 2 ? '/dashboard' : `/dashboard?page=${page - 1}`}
+              href={pageHref(page - 1)}
               className={buttonClass('secondary', 'sm')}
             >
               ← ใหม่กว่า
@@ -274,7 +310,7 @@ export default async function DashboardPage({ searchParams }: Props) {
           </span>
 
           {page < lastPage ? (
-            <Link href={`/dashboard?page=${page + 1}`} className={buttonClass('secondary', 'sm')}>
+            <Link href={pageHref(page + 1)} className={buttonClass('secondary', 'sm')}>
               เก่ากว่า →
             </Link>
           ) : (
