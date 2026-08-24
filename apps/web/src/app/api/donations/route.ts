@@ -63,8 +63,6 @@ export async function POST(req: Request) {
       minAmount: true,
       maxAmount: true,
       promptPayId: true,
-      bankCode: true,
-      bankAccountLast4: true,
       bankAccountName: true,
     },
   })
@@ -183,14 +181,10 @@ export async function POST(req: Request) {
         amount: input.amount,
         expiresAt: expiresAt.toISOString(),
         qrImageUrl,
-        // Enough for the donor to make the transfer, and nothing more. The
-        // last four digits are all we hold, which is also all a slip can be
-        // compared against.
-        bankAccount: {
-          bankCode: streamer.bankCode,
-          last4: streamer.bankAccountLast4,
-          name: streamer.bankAccountName,
-        },
+        // The name and nothing else. The QR carries the destination, and the
+        // account number is not ours to give — four digits is all this app
+        // stores of one.
+        bankAccount: { name: streamer.bankAccountName },
       },
       { status: 201 },
     )

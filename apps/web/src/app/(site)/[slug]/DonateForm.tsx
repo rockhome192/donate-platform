@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { bankName, createDonationSchema, formatBaht, toBaht, toSatang } from '@dp/shared'
+import { createDonationSchema, formatBaht, toBaht, toSatang } from '@dp/shared'
 import { ErrorNote, StatusTrack, TechLabel, buttonClass } from '@/components/ui'
 
 /**
@@ -43,9 +43,13 @@ type Props = {
 }
 
 export type SlipAccount = {
-  /** Null when the streamer registered PromptPay only — see the donate page. */
-  bankCode: string | null
-  last4: string | null
+  /**
+   * The only thing a donor can act on. There is no account number here and
+   * there never was one to give: this app stores four digits of an account at
+   * most, so the row that used to read `xxx-x-x7788-x` told nobody anything
+   * they could transfer to. The name, they can check against what their
+   * banking app shows them before they confirm.
+   */
   name: string
 }
 
@@ -740,18 +744,6 @@ function SlipPanel({
       */}
       <dl className="mt-4 space-y-2 rounded-panel border border-line bg-inset p-4">
         <Row label="เข้าบัญชี" value={created.bankAccount.name} />
-        {/*
-          Only when the streamer registered a bank account. The QR is PromptPay
-          and carries the destination itself, so these two lines are a courtesy
-          — a donor checking the name their banking app shows against the one
-          this page claims — not something the transfer needs.
-        */}
-        {created.bankAccount.bankCode && created.bankAccount.last4 && (
-          <>
-            <Row label="ธนาคาร" value={bankName(created.bankAccount.bankCode)} />
-            <Row label="เลขบัญชี" value={`xxx-x-x${created.bankAccount.last4}-x`} numeric />
-          </>
-        )}
       </dl>
 
       {/*

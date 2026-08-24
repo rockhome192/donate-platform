@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { SATANG_PER_BAHT, THAI_BANKS, formatBaht, profileSchema } from '@dp/shared'
+import { SATANG_PER_BAHT, formatBaht, profileSchema } from '@dp/shared'
 import { ErrorNote, Panel, PanelHeader, TechLabel, buttonClass } from '@/components/ui'
 
 /**
@@ -28,8 +28,6 @@ export type ProfileInitial = {
   minAmount: number
   /** satang */
   maxAmount: number
-  bankCode: string | null
-  bankAccountLast4: string | null
   bankAccountName: string | null
   promptPayId: string | null
 }
@@ -56,8 +54,6 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initial.avatarUrl)
   const [minBaht, setMinBaht] = useState(String(initial.minAmount / SATANG_PER_BAHT))
   const [maxBaht, setMaxBaht] = useState(String(initial.maxAmount / SATANG_PER_BAHT))
-  const [bankCode, setBankCode] = useState(initial.bankCode ?? '')
-  const [bankLast4, setBankLast4] = useState(initial.bankAccountLast4 ?? '')
   const [bankName, setBankName] = useState(initial.bankAccountName ?? '')
   const [ppId, setPpId] = useState(initial.promptPayId ?? '')
 
@@ -76,8 +72,6 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
     avatarUrl !== initial.avatarUrl ||
     minAmount !== initial.minAmount ||
     maxAmount !== initial.maxAmount ||
-    bankCode !== (initial.bankCode ?? '') ||
-    bankLast4 !== (initial.bankAccountLast4 ?? '') ||
     bankName !== (initial.bankAccountName ?? '') ||
     ppId !== (initial.promptPayId ?? '')
 
@@ -159,10 +153,6 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
       ...(maxAmount !== initial.maxAmount && { maxAmount }),
       // Empty means "no account", which is a real state the column has to be
       // able to return to — hence null rather than dropping the key.
-      ...(bankCode !== (initial.bankCode ?? '') && { bankCode: bankCode || null }),
-      ...(bankLast4 !== (initial.bankAccountLast4 ?? '') && {
-        bankAccountLast4: bankLast4 || null,
-      }),
       ...(bankName !== (initial.bankAccountName ?? '') && {
         bankAccountName: bankName || null,
       }),
@@ -180,9 +170,8 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
     }
     // Mirrors the route's rule so the answer arrives without a round trip. The
     // route still enforces it — this is convenience, not the check.
-    const bankFilled = [bankCode, bankLast4, bankName, ppId].filter((v) => v !== '').length
-    if (bankFilled !== 0 && bankFilled !== 4) {
-      setError('กรอกข้อมูลรับโอนให้ครบทุกช่อง หรือเว้นว่างทั้งหมด')
+    if (Boolean(ppId) !== Boolean(bankName)) {
+      setError('กรอกทั้งเบอร์พร้อมเพย์และชื่อบัญชี หรือเว้นว่างทั้งคู่')
       return
     }
 
@@ -359,8 +348,7 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
               QR บนหน้าโดเนทพาไปที่เบอร์นั้น และระบบเทียบ<span className="text-muted">ชื่อ</span>
               ในสลิปกับที่กรอกไว้ เพราะเลข 4 ตัวท้ายของเบอร์ซื้อจากร้านมือถือได้ แต่ชื่อซื้อไม่ได้
               <br />
-              ธนาคาร + เลขบัญชี 4 ตัวท้าย <span className="text-muted">ไม่บังคับ</span>{' '}
-              ใช้ตอนที่คนโอนไม่สแกน QR แต่โอนเข้าเลขบัญชีตรง ๆ เท่านั้น
+              ไม่ต้องกรอกเลขบัญชีธนาคาร — QR พาไปที่พร้อมเพย์อยู่แล้ว
             </p>
             <div className="mb-3">
               <label htmlFor="promptPayId" className={LABEL}>
@@ -400,40 +388,6 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
                 onChange={(e) => setBankName(e.target.value)}
                 className={FIELD}
               />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <label htmlFor="bankCode" className={LABEL}>
-                  ธนาคาร <span className="text-faint">(ไม่บังคับ)</span>
-                </label>
-                <select
-                  id="bankCode"
-                  value={bankCode}
-                  onChange={(e) => setBankCode(e.target.value)}
-                  className={FIELD}
-                >
-                  <option value="">— ไม่ระบุ —</option>
-                  {THAI_BANKS.map((b) => (
-                    <option key={b.code} value={b.code}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="bankAccountLast4" className={LABEL}>
-                  เลขบัญชี 4 ตัวท้าย <span className="text-faint">(ไม่บังคับ)</span>
-                </label>
-                <input
-                  id="bankAccountLast4"
-                  inputMode="numeric"
-                  maxLength={4}
-                  placeholder="7788"
-                  value={bankLast4}
-                  onChange={(e) => setBankLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  className={`${FIELD} font-numeric tabular-nums`}
-                />
-              </div>
             </div>
           </div>
 

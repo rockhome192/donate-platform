@@ -34,12 +34,20 @@ export type ExpectedTransfer = {
   /** satang */
   amount: number
   /**
-   * The streamer's bank account, when they registered one. OPTIONAL, and that
-   * is a change: it used to be required alongside the PromptPay id, which
-   * asked every streamer to type an account number into a check that could
-   * never run for them. This app prints a PromptPay QR and nothing else, and a
-   * PromptPay slip names no account at all — so the account pair is only ever
-   * read when a donor ignores the QR and transfers to the account by hand.
+   * The streamer's bank account. Always null on this deployment, and kept
+   * anyway.
+   *
+   * The profile form stopped asking for it, and the reason is the one that
+   * should have been obvious from the start: this app never publishes an
+   * account number. It stores four digits of one at most, so the donate page
+   * could only ever print `xxx-x-x7788-x` — a string nobody can transfer to.
+   * A slip naming an account can therefore only come from a transfer arranged
+   * entirely off this site.
+   *
+   * The branch below stays because it is not dead: with these null, a slip
+   * that names an account is REFUSED rather than waved through, which is the
+   * behaviour we want. And if a later version ever does publish a full account
+   * number, the check it needs is already written and tested.
    */
   bankCode: string | null
   bankAccountLast4: string | null

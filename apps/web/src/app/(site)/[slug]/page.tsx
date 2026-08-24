@@ -47,8 +47,6 @@ async function loadStreamer(slug: string) {
       isSuspended: true,
       minAmount: true,
       promptPayId: true,
-      bankCode: true,
-      bankAccountLast4: true,
       bankAccountName: true,
       maxAmount: true,
     },
@@ -232,11 +230,7 @@ export default async function DonatePage({ params }: Params) {
                       env.slipDonationsEnabled &&
                       streamer.bankAccountName &&
                       streamer.promptPayId
-                        ? {
-                            bankCode: streamer.bankCode,
-                            last4: streamer.bankAccountLast4,
-                            name: streamer.bankAccountName,
-                          }
+                        ? { name: streamer.bankAccountName }
                         : null
                     }
                   />

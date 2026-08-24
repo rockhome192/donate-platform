@@ -50,8 +50,6 @@ export default async function ProfilePage() {
       bio: true,
       avatarUrl: true,
       minAmount: true,
-      bankCode: true,
-      bankAccountLast4: true,
       bankAccountName: true,
       promptPayId: true,
       maxAmount: true,
