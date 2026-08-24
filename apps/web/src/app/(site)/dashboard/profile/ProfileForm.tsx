@@ -355,9 +355,12 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
             <p className="mb-3 text-meta text-faint">
               เว้นว่างทั้งหมด = ปิดรับ หน้าโดเนทจะเหลือแค่ QR จำลอง
               <br />
-              <span className="text-muted">พร้อมเพย์</span> คือปลายทางที่ QR
-              บนหน้าโดเนทจะพาไป ส่วน <span className="text-muted">ธนาคาร + 4 ตัวท้าย</span>{' '}
-              คือสิ่งที่ระบบเอาไปเทียบกับสลิป — ต้องเป็นบัญชีเดียวกัน
+              ต้องกรอก <span className="text-muted">เบอร์พร้อมเพย์ + ชื่อบัญชี</span> เท่านั้น —
+              QR บนหน้าโดเนทพาไปที่เบอร์นั้น และระบบเทียบ<span className="text-muted">ชื่อ</span>
+              ในสลิปกับที่กรอกไว้ เพราะเลข 4 ตัวท้ายของเบอร์ซื้อจากร้านมือถือได้ แต่ชื่อซื้อไม่ได้
+              <br />
+              ธนาคาร + เลขบัญชี 4 ตัวท้าย <span className="text-muted">ไม่บังคับ</span>{' '}
+              ใช้ตอนที่คนโอนไม่สแกน QR แต่โอนเข้าเลขบัญชีตรง ๆ เท่านั้น
             </p>
             <div className="mb-3">
               <label htmlFor="promptPayId" className={LABEL}>
@@ -385,10 +388,23 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
                 รองรับเฉพาะเบอร์มือถือ ไม่รับเลขบัตรประชาชน
               </p>
             </div>
+            <div className="mb-3">
+              <label htmlFor="bankAccountName" className={LABEL}>
+                ชื่อบัญชี
+              </label>
+              <input
+                id="bankAccountName"
+                maxLength={120}
+                placeholder="ชื่อที่ปรากฏในแอปธนาคาร"
+                value={bankName}
+                onChange={(e) => setBankName(e.target.value)}
+                className={FIELD}
+              />
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <label htmlFor="bankCode" className={LABEL}>
-                  ธนาคาร
+                  ธนาคาร <span className="text-faint">(ไม่บังคับ)</span>
                 </label>
                 <select
                   id="bankCode"
@@ -406,7 +422,7 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
               </div>
               <div>
                 <label htmlFor="bankAccountLast4" className={LABEL}>
-                  เลขบัญชี 4 ตัวท้าย
+                  เลขบัญชี 4 ตัวท้าย <span className="text-faint">(ไม่บังคับ)</span>
                 </label>
                 <input
                   id="bankAccountLast4"
@@ -416,19 +432,6 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
                   value={bankLast4}
                   onChange={(e) => setBankLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
                   className={`${FIELD} font-numeric tabular-nums`}
-                />
-              </div>
-              <div>
-                <label htmlFor="bankAccountName" className={LABEL}>
-                  ชื่อบัญชี
-                </label>
-                <input
-                  id="bankAccountName"
-                  maxLength={120}
-                  placeholder="ชื่อที่ปรากฏในแอปธนาคาร"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                  className={FIELD}
                 />
               </div>
             </div>

@@ -33,7 +33,14 @@ export type SlipCheckFailure = {
 export type ExpectedTransfer = {
   /** satang */
   amount: number
-  /** The streamer's registered destination. Null when they never set one. */
+  /**
+   * The streamer's bank account, when they registered one. OPTIONAL, and that
+   * is a change: it used to be required alongside the PromptPay id, which
+   * asked every streamer to type an account number into a check that could
+   * never run for them. This app prints a PromptPay QR and nothing else, and a
+   * PromptPay slip names no account at all — so the account pair is only ever
+   * read when a donor ignores the QR and transfers to the account by hand.
+   */
   bankCode: string | null
   bankAccountLast4: string | null
   /**
@@ -123,7 +130,10 @@ export function checkSlipAgainstDonation(
     So: whichever the slip names must match, BOTH must match when the slip
     names both, and naming neither is a refusal rather than a pass.
   */
-  if (!expected.bankCode || !expected.bankAccountLast4 || !expected.promptPayLast4) {
+  const hasAccount = Boolean(expected.bankCode && expected.bankAccountLast4)
+  const hasProxy = Boolean(expected.promptPayLast4)
+
+  if (!hasAccount && !hasProxy) {
     // FAILS CLOSED. A streamer who never registered a destination cannot have
     // layer 3 run at all, and a check that cannot run must not silently pass:
     // that would accept any genuine slip in Thailand as payment to this
@@ -151,12 +161,32 @@ export function checkSlipAgainstDonation(
     }
   }
 
+  /*
+    A destination is only CHECKED when both sides have it. The slip naming an
+    account we never registered is not a mismatch — there is nothing to
+    mismatch against — and calling it one would tell a donor who paid correctly
+    that they paid the wrong account.
+
+    But an unchecked destination is not an approved one either, so if neither
+    side lines up, this refuses like any other check that cannot run.
+  */
+  const accountChecked = namesAccount && hasAccount
+  const proxyChecked = namesProxy && hasProxy
+
+  if (!accountChecked && !proxyChecked) {
+    return {
+      code: 'receiver_unconfigured',
+      status: 409,
+      message: 'สตรีมเมอร์ยังไม่ได้ตั้งค่าบัญชีปลายทางแบบที่สลิปนี้ระบุ จึงตรวจสอบไม่ได้',
+    }
+  }
+
   const accountWrong =
-    namesAccount &&
+    accountChecked &&
     (facts.receiverAccountLast4 !== expected.bankAccountLast4 ||
       facts.receiverBankCode !== expected.bankCode)
 
-  const proxyWrong = namesProxy && facts.receiverProxyLast4 !== expected.promptPayLast4
+  const proxyWrong = proxyChecked && facts.receiverProxyLast4 !== expected.promptPayLast4
 
   if (accountWrong || proxyWrong) {
     return {
@@ -200,8 +230,17 @@ export function checkSlipAgainstDonation(
         message: 'ชื่อบัญชีปลายทางในสลิปไม่ตรงกับของสตรีมเมอร์คนนี้',
       }
     }
-  } else if (!namesAccount) {
-    // Proxy-only AND nameless: nothing left that an attacker cannot arrange.
+  } else if (!accountChecked) {
+    /*
+      Nameless, and no bank account was actually VERIFIED — so the only thing
+      standing between this slip and the donation is four digits of a phone
+      number, which is the one field an attacker can go and buy.
+
+      `accountChecked`, not `namesAccount`: a slip can name an account we never
+      registered, which proves nothing about where the money went. Reading the
+      slip's claim instead of our own verification would drop the name
+      requirement on exactly the path that needs it.
+    */
     return {
       code: 'receiver_name_missing',
       status: 422,

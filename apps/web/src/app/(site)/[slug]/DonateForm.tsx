@@ -43,8 +43,9 @@ type Props = {
 }
 
 export type SlipAccount = {
-  bankCode: string
-  last4: string
+  /** Null when the streamer registered PromptPay only — see the donate page. */
+  bankCode: string | null
+  last4: string | null
   name: string
 }
 
@@ -739,8 +740,18 @@ function SlipPanel({
       */}
       <dl className="mt-4 space-y-2 rounded-panel border border-line bg-inset p-4">
         <Row label="เข้าบัญชี" value={created.bankAccount.name} />
-        <Row label="ธนาคาร" value={bankName(created.bankAccount.bankCode)} />
-        <Row label="เลขบัญชี" value={`xxx-x-x${created.bankAccount.last4}-x`} numeric />
+        {/*
+          Only when the streamer registered a bank account. The QR is PromptPay
+          and carries the destination itself, so these two lines are a courtesy
+          — a donor checking the name their banking app shows against the one
+          this page claims — not something the transfer needs.
+        */}
+        {created.bankAccount.bankCode && created.bankAccount.last4 && (
+          <>
+            <Row label="ธนาคาร" value={bankName(created.bankAccount.bankCode)} />
+            <Row label="เลขบัญชี" value={`xxx-x-x${created.bankAccount.last4}-x`} numeric />
+          </>
+        )}
       </dl>
 
       {/*

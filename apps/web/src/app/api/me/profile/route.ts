@@ -136,16 +136,25 @@ export async function PATCH(req: Request) {
   }
 
   /*
-    A bank account is all three fields or none of them.
+    Two pairs, each all-or-nothing, and they are not equally important.
 
-    The same reasoning as the min/max check above: a partial PATCH can carry
-    one field, the schema cannot see the stored value of the other two, so the
-    comparison has to be against the row as it currently is. What makes this
-    one worth refusing rather than tolerating is layer 3 of DESIGN.md 7.3 — it
-    compares a slip's receiver against `bankCode` AND `bankAccountLast4`, and
-    fails closed if either is missing. A streamer who saved two of the three
-    would see slip donations offered on their page and every one of them
-    refused, with nothing on the settings form to explain why.
+    A partial PATCH can carry one field and the schema cannot see the stored
+    value of its partner, so both comparisons run against the row as it
+    currently is.
+
+      promptPayId + bankAccountName  — what it takes to receive at all. The
+        donate page prints a PromptPay QR, and layer 3 of DESIGN.md 7.3 leans
+        on the account NAME for that path, because four digits of a phone
+        number can be bought from a phone shop and a name cannot.
+
+      bankCode + bankAccountLast4    — OPTIONAL, and only read when a donor
+        ignores the QR and transfers to the account by hand. This used to be
+        required with the other two, which meant every streamer typed an
+        account number into a check that their own donors would never reach.
+
+    Half a pair is still refused: a streamer who saved one of two would see
+    slip donations offered and every one refused, with nothing on the form to
+    explain why.
   */
   const bank = {
     bankCode: patch.bankCode !== undefined ? patch.bankCode : current.bankCode,
@@ -155,15 +164,22 @@ export async function PATCH(req: Request) {
       patch.bankAccountName !== undefined ? patch.bankAccountName : current.bankAccountName,
     promptPayId: patch.promptPayId !== undefined ? patch.promptPayId : current.promptPayId,
   }
-  const filled = Object.values(bank).filter((v) => v !== null).length
-  if (filled !== 0 && filled !== 4) {
+
+  if (Boolean(bank.promptPayId) !== Boolean(bank.bankAccountName)) {
     return Response.json(
       {
-        error:
-          'กรอกข้อมูลรับโอนให้ครบทั้งพร้อมเพย์ ธนาคาร เลข 4 ตัวท้าย และชื่อบัญชี หรือเว้นว่างทั้งหมด',
-        // Point at a field the caller can actually see is empty.
-        field:
-          (Object.entries(bank).find(([, v]) => v === null)?.[0] as string | undefined) ?? 'bankCode',
+        error: 'กรอกทั้งเบอร์พร้อมเพย์และชื่อบัญชี หรือเว้นว่างทั้งคู่',
+        field: bank.promptPayId ? 'bankAccountName' : 'promptPayId',
+      },
+      { status: 400, headers: NO_STORE },
+    )
+  }
+
+  if (Boolean(bank.bankCode) !== Boolean(bank.bankAccountLast4)) {
+    return Response.json(
+      {
+        error: 'กรอกทั้งธนาคารและเลขบัญชี 4 ตัวท้าย หรือเว้นว่างทั้งคู่',
+        field: bank.bankCode ? 'bankAccountLast4' : 'bankCode',
       },
       { status: 400, headers: NO_STORE },
     )

@@ -190,6 +190,50 @@ describe('layer 3 — a PromptPay slip names no account at all', () => {
     expect(result?.code).toBe('receiver_unconfigured')
   })
 
+  /*
+    The streamer who never typed a bank account in — which is most of them, now
+    that the form stops asking. The QR they hand donors is PromptPay, the slip
+    it produces names no account, and none of that needs an account number.
+    Requiring one used to refuse every donation these streamers could receive.
+  */
+  const PROMPTPAY_ONLY = { ...EXPECTED, bankCode: null, bankAccountLast4: null }
+
+  it('accepts a PromptPay slip from a streamer who registered no bank account', () => {
+    expect(checkSlipAgainstDonation(promptPayFacts(), PROMPTPAY_ONLY, NOW)).toBeNull()
+  })
+
+  it('still refuses a wrong PromptPay number for that streamer', () => {
+    const result = checkSlipAgainstDonation(
+      promptPayFacts({ receiverProxyLast4: '9999' }),
+      PROMPTPAY_ONLY,
+      NOW,
+    )
+    expect(result?.code).toBe('receiver_mismatch')
+  })
+
+  it('FAILS CLOSED on a bank-transfer slip when only PromptPay is registered', () => {
+    // Nothing to compare the account against. Not a mismatch — a mismatch would
+    // accuse a donor who may well have paid correctly — but not a pass either.
+    const result = checkSlipAgainstDonation(facts(), PROMPTPAY_ONLY, NOW)
+    expect(result?.code).toBe('receiver_unconfigured')
+    expect(result?.status).toBe(409)
+  })
+
+  it('still demands a name when the account named on the slip was never verified', () => {
+    /*
+      The subtle one. The slip names an account we do not hold AND the proxy we
+      do, and carries no receiver name. Reading "the slip mentioned an account"
+      as "an account was checked" would drop the name requirement on the one
+      path where four digits can be bought from a phone shop.
+    */
+    const result = checkSlipAgainstDonation(
+      facts({ receiverProxyLast4: '1112', receiverProxyRaw: 'xxx-xxx-1112', receiverNames: [] }),
+      PROMPTPAY_ONLY,
+      NOW,
+    )
+    expect(result?.code).toBe('receiver_name_missing')
+  })
+
   it('requires BOTH to match when a slip names both', () => {
     // Naming one correctly does not excuse the other. A slip that carries an
     // account and a proxy has to agree with us about each.

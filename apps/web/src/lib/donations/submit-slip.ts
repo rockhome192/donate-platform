@@ -230,9 +230,9 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
   // repeats it, on purpose: it is a pure function with its own callers and must
   // stay safe on its own.
   if (
-    !donation.streamer.bankCode ||
-    !donation.streamer.bankAccountLast4 ||
-    !donation.streamer.promptPayId
+    !donation.streamer.bankAccountName ||
+    (!donation.streamer.promptPayId &&
+      !(donation.streamer.bankCode && donation.streamer.bankAccountLast4))
   ) {
     return {
       ok: false,

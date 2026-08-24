@@ -220,15 +220,16 @@ export default async function DonatePage({ params }: Params) {
                     // where the endpoint behind it 404s.
                     demoMode={env.isDemoMode}
                     /*
-                      All three or nothing — the route enforces the same rule on
-                      save. Passing a partial account would offer the slip
-                      option on the page and have layer 3 refuse every slip it
-                      produced, which costs a viewer real money to discover.
+                      PromptPay id and account name, because those are what the
+                      QR and layer 3 actually need — the same rule the donations
+                      route enforces on the request. The bank account pair rides
+                      along when it exists and is null when it does not: a
+                      PromptPay slip names no account, so requiring one here
+                      would hide the option from streamers who can be paid
+                      perfectly well without it.
                     */
                     slipAccount={
                       env.slipDonationsEnabled &&
-                      streamer.bankCode &&
-                      streamer.bankAccountLast4 &&
                       streamer.bankAccountName &&
                       streamer.promptPayId
                         ? {

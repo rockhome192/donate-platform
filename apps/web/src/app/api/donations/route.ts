@@ -105,12 +105,15 @@ export async function POST(req: Request) {
       )
     }
 
-    if (
-      !streamer.bankCode ||
-      !streamer.bankAccountLast4 ||
-      !streamer.bankAccountName ||
-      !streamer.promptPayId
-    ) {
+    /*
+      The QR this route prints is a PromptPay one and nothing else, so the
+      PromptPay id is what makes the option possible at all. The account name
+      comes with it because layer 3 leans on the name for exactly this path.
+      The bank account pair is NOT required: a PromptPay slip never names an
+      account, so demanding one only asked streamers to fill a field that no
+      donation could ever exercise.
+    */
+    if (!streamer.promptPayId || !streamer.bankAccountName) {
       return Response.json(
         { error: `${streamer.displayName} ยังไม่ได้เปิดรับโอนพร้อมสลิป` },
         { status: 409 },
