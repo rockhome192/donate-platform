@@ -6,6 +6,7 @@ import {
   SlipVerifierUnavailableError,
   type SlipInput,
   type SlipRejectionReason,
+  type SlipVerifier,
 } from '@/lib/payments/slip-types'
 import { rateLimit } from '@/lib/rate-limit'
 import { settleDonation } from './settle'
@@ -70,6 +71,22 @@ const SLIP_ALREADY_USED = {
   status: 409,
   code: 'slip_already_used',
   message: 'สลิปใบนี้ถูกใช้ไปแล้ว',
+} as const
+
+/**
+ * Every way this deployment can fail to answer "is this slip real", said in
+ * one voice: down, out of quota, misconfigured, or broken in our own code.
+ *
+ * One answer for all of them because the donor can do exactly one thing about
+ * any of them — try again later — and because the alternative is what actually
+ * happened in production: a config typo escaped as an unhandled 500 with an
+ * empty body, and the page fell back to `ตรวจสลิปไม่สำเร็จ (500)`, which tells
+ * somebody who has already moved real money nothing at all.
+ */
+const VERIFIER_UNAVAILABLE = {
+  status: 503,
+  code: 'verifier_unavailable',
+  message: 'ระบบตรวจสลิปไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่อีกครั้ง',
 } as const
 
 const REJECTION_RESPONSES = {
@@ -242,7 +259,15 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
   }
 
   // ---- Layer 1: ask an upstream that actually asked the bank ---------------
-  const verifier = getSlipVerifier()
+  // Building it can fail on its own — an unknown SLIP_VERIFIER — and that is
+  // config, not a verdict on the slip.
+  let verifier: SlipVerifier
+  try {
+    verifier = getSlipVerifier()
+  } catch (e) {
+    console.error('[slip] no verifier — check SLIP_VERIFIER', e)
+    return { ok: false, ...VERIFIER_UNAVAILABLE }
+  }
   // Named in the diagnostics below because the two adapters refuse for
   // different reasons, and "rejected" without the vendor sent one debugging
   // session looking for a SlipOK code in an EasySlip response.
@@ -269,14 +294,20 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
     if (e instanceof SlipVerifierUnavailableError) {
       // Never told the donor their slip is fake because OUR upstream is down.
       console.error('[slip] verifier unavailable', e)
-      return {
-        ok: false,
-        status: 503,
-        code: 'verifier_unavailable',
-        message: 'ระบบตรวจสลิปไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่อีกครั้ง',
-      }
+      return { ok: false, ...VERIFIER_UNAVAILABLE }
     }
-    throw e
+    /*
+      Anything else is ours too, and it no longer escapes as a 500.
+
+      The one that reached production was `required('EASYSLIP_API_KEY')` — a
+      plain Error thrown from inside the adapter when a key is missing from the
+      deployment, which is precisely "this deployment cannot check slips". A
+      genuine bug in this file would land here as well, and a donor holding a
+      slip is owed a sentence either way; the stack goes to the log, where it
+      can be read by somebody who can act on it.
+    */
+    console.error(`[slip] ${verifierName} could not run`, e)
+    return { ok: false, ...VERIFIER_UNAVAILABLE }
   }
 
   /*
@@ -308,12 +339,7 @@ export async function submitSlip(input: SubmitSlipInput): Promise<SubmitSlipResu
 
   if (contractViolation) {
     console.error(`[slip] verifier broke its contract — ${contractViolation}`)
-    return {
-      ok: false,
-      status: 503,
-      code: 'verifier_unavailable',
-      message: 'ระบบตรวจสลิปไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่อีกครั้ง',
-    }
+    return { ok: false, ...VERIFIER_UNAVAILABLE }
   }
 
   // ---- Layers 3, 4, 5: is this slip OURS -----------------------------------

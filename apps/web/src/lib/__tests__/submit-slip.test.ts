@@ -10,13 +10,21 @@ import { SlipRejectedError, SlipVerifierUnavailableError } from '../payments/sli
  * is never reported to a donor as a forged slip.
  */
 
-const { dbMock, rateLimitMock, verifierMock, settleMock, envMock } = vi.hoisted(() => ({
-  dbMock: { donation: { findUnique: vi.fn() } },
-  rateLimitMock: vi.fn(),
-  verifierMock: { name: 'fake', verify: vi.fn() },
-  settleMock: vi.fn(),
-  envMock: { slipDonationsEnabled: true },
-}))
+const { dbMock, rateLimitMock, verifierMock, getVerifierMock, settleMock, envMock } = vi.hoisted(
+  () => {
+    const verifierMock = { name: 'fake', verify: vi.fn() }
+    return {
+      dbMock: { donation: { findUnique: vi.fn() } },
+      rateLimitMock: vi.fn(),
+      verifierMock,
+      // A fn rather than a constant: building the verifier is itself a thing
+      // that can fail, and production proved it.
+      getVerifierMock: vi.fn(() => verifierMock),
+      settleMock: vi.fn(),
+      envMock: { slipDonationsEnabled: true },
+    }
+  },
+)
 
 vi.mock('@/lib/db', () => ({
   db: dbMock,
@@ -28,7 +36,7 @@ vi.mock('@/lib/env', () => ({ env: envMock }))
 vi.mock('@/lib/payments/slip', async (importOriginal) => ({
   // The real checks run — only the upstream is swapped out.
   ...(await importOriginal<typeof import('../payments/slip')>()),
-  getSlipVerifier: () => verifierMock,
+  getSlipVerifier: getVerifierMock,
 }))
 vi.mock('@/lib/donations/settle', () => ({ settleDonation: settleMock }))
 
@@ -77,6 +85,7 @@ const INPUT = { donationId: 'don_1', slip: { qrPayload: 'x' }, clientIp: '1.2.3.
 
 beforeEach(() => {
   vi.clearAllMocks()
+  getVerifierMock.mockReturnValue(verifierMock)
   envMock.slipDonationsEnabled = true
   rateLimitMock.mockResolvedValue({ ok: true, retryAfter: 0 })
   dbMock.donation.findUnique.mockResolvedValue(aDonation())
@@ -205,9 +214,47 @@ describe('layer 1 — what the upstream says, and what it does not', () => {
     expect(settleMock).not.toHaveBeenCalled()
   })
 
-  it('lets an unexpected error escape rather than swallowing it', async () => {
+  /*
+    These three used to be one test asserting the opposite — that an unexpected
+    error escapes. It escaped all the way to production: SLIP_VERIFIER was set
+    to `true`, the factory threw a plain Error, and the donor got an unhandled
+    500 with an empty body under the page's last-resort wording,
+    `ตรวจสลิปไม่สำเร็จ (500)`, while holding a slip for money already sent.
+
+    Escaping is only defensible when somebody is watching the stack. On a
+    public endpoint the person watching is a donor, and 503 is the sentence
+    they can act on. The stack still goes to the log.
+  */
+  it('answers 503 when the verifier cannot even be built', async () => {
+    getVerifierMock.mockImplementation(() => {
+      throw new SlipVerifierUnavailableError('Unknown SLIP_VERIFIER: true')
+    })
+
+    const result = await submitSlip(INPUT)
+
+    expect(result).toMatchObject({ ok: false, status: 503, code: 'verifier_unavailable' })
+    expect(verifierMock.verify).not.toHaveBeenCalled()
+    expect(settleMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 503 when the adapter is missing its API key', async () => {
+    // `required()` throws a plain Error, which is what reached production as a
+    // 500 the second SLIP_VERIFIER was spelled correctly.
+    verifierMock.verify.mockRejectedValue(new Error('Missing required env var: EASYSLIP_API_KEY'))
+
+    const result = await submitSlip(INPUT)
+
+    expect(result).toMatchObject({ ok: false, status: 503, code: 'verifier_unavailable' })
+    expect(settleMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 503 for a bug of our own rather than a bare 500', async () => {
     verifierMock.verify.mockRejectedValue(new TypeError('boom'))
-    await expect(submitSlip(INPUT)).rejects.toThrow('boom')
+
+    const result = await submitSlip(INPUT)
+
+    expect(result).toMatchObject({ ok: false, status: 503, code: 'verifier_unavailable' })
+    expect(settleMock).not.toHaveBeenCalled()
   })
 })
 

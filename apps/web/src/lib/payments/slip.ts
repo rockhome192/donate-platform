@@ -1,7 +1,7 @@
 import { EasySlipVerifier } from './easyslip'
 import { FakeSlipVerifier } from './slip-fake'
 import { SlipOkVerifier } from './slipok'
-import type { SlipVerifier } from './slip-types'
+import { SlipVerifierUnavailableError, type SlipVerifier } from './slip-types'
 
 export * from './slip-types'
 export * from './slip-checks'
@@ -38,7 +38,22 @@ export function getSlipVerifier(): SlipVerifier {
       cached = new EasySlipVerifier()
       return cached
     default:
-      throw new Error(`Unknown SLIP_VERIFIER: ${choice}`)
+      /*
+        Typed, not a bare Error, and that difference cost a live donation.
+
+        SLIP_VERIFIER was set to `true` on production — the shape of
+        SLIP_DONATIONS_ENABLED=true, copied onto a variable that wants a NAME —
+        and the plain Error thrown here walked out through `submitSlip` into an
+        unhandled 500 with an empty body. The donor, who had already
+        transferred the money, was shown the page's last-resort text for a
+        response carrying no message at all.
+
+        A deployment configured with a verifier that does not exist is in the
+        same position as one whose verifier is down: it cannot check slips, and
+        that is a fact about US. `SlipVerifierUnavailableError` is how this
+        codebase says exactly that, and it answers 503 instead.
+      */
+      throw new SlipVerifierUnavailableError(`Unknown SLIP_VERIFIER: ${choice}`)
   }
 }
 
