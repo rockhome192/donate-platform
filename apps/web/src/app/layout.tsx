@@ -45,7 +45,7 @@ const spaceGrotesk = Space_Grotesk({
 export const metadata: Metadata = {
   title: 'DONATR — ระบบรับโดเนทสำหรับสตรีมเมอร์ (demo)',
   description:
-    'ระบบรับโดเนทสำหรับสตรีมเมอร์ พร้อม alert เรียลไทม์บน OBS — โปรเจกต์สาธิต ไม่รับเงินจริง',
+    'ระบบรับโดเนทสำหรับสตรีมเมอร์ พร้อม alert เรียลไทม์บน OBS — โปรเจกต์สาธิต แพลตฟอร์มไม่ถือเงินและไม่จ่ายเงินออก',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

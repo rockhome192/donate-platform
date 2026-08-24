@@ -10,7 +10,8 @@ import { DemoBanner } from '@/components/DemoBanner'
  *
  * The DEMO banner is not optional on any page in this group (DESIGN.md 0): the
  * project talks about money and QR codes, and a visitor must never be able to
- * mistake it for something that takes real payments.
+ * mistake one payment path here for the other. What it says depends on whether
+ * this deployment has the slip path on — see the component.
  */
 export default function SiteLayout({ children }: { children: React.ReactNode }) {
   return (

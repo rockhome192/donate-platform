@@ -106,7 +106,7 @@ export default async function AdminPage() {
           label="volume"
           value={`฿${formatBaht(paid._sum.amount ?? 0).replace('.00', '')}`}
           tone="money"
-          note="ยอดจำลองทั้งหมด ไม่ใช่เงินจริง"
+          note="รวม gateway (จำลอง) และสลิปที่โอนจริง"
         />
         <StatBlock
           label="webhooks pending"

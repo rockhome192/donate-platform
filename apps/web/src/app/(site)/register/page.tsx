@@ -52,12 +52,16 @@ export default async function RegisterPage() {
           </div>
 
           {/*
-            The one thing a signup page here has to say. Anyone creating an
-            account is entitled to know before they type that the money side of
-            this product is simulated — after they have a dashboard is too late.
+            The one thing a signup page here has to say, and it is no longer
+            "the money is fake". Anyone creating an account is entitled to know
+            before they type WHERE the money goes: the gateway path is
+            simulated, the slip path pays them directly, and this platform is
+            never in the middle of either. After they have a dashboard and a
+            PromptPay id in it is too late.
           */}
           <p className="mt-5 text-center text-meta text-faint">
-            ระบบสาธิต — ไม่รับเงินจริง และไม่มีการจ่ายเงินออกจริง
+            ระบบสาธิต — แพลตฟอร์มไม่ถือเงินและไม่จ่ายเงินออก ·
+            ยอดที่ผู้ชมโอนพร้อมสลิปเข้าบัญชีของคุณโดยตรง
           </p>
         </div>
       </main>

@@ -330,8 +330,16 @@ function AmountForm({
         {submitting ? 'กำลังสร้าง QR…' : 'สร้าง QR PromptPay →'}
       </button>
 
+      {/*
+        Method-aware, because the two paths are opposites and one sentence
+        cannot cover both. The gateway QR is a mock no bank will read. The slip
+        QR is the streamer's real PromptPay — a donor who scans it moves real
+        money, and nobody on this side can reverse it for them.
+      */}
       <p className="mt-3 text-center text-meta text-faint">
-        โปรเจกต์สาธิต — QR สแกนไม่ได้จริง และไม่มีการตัดเงินใด ๆ
+        {slipAccount && method === 'slip'
+          ? 'โอนเข้าบัญชีสตรีมเมอร์โดยตรงด้วยเงินจริง — แพลตฟอร์มไม่ถือเงินและคืนเงินให้ไม่ได้'
+          : 'โปรเจกต์สาธิต — QR สแกนไม่ได้จริง และไม่มีการตัดเงินใด ๆ'}
       </p>
     </form>
   )
@@ -513,7 +521,7 @@ function QrPanel({
       </p>
       <p className="mt-1 text-meta text-faint">
         QR นี้ <strong className="font-semibold text-ink">สแกนไม่ได้จริง</strong> —
-        โปรเจกต์นี้ไม่รับเงินจริง
+        ช่องทางนี้เป็นการจำลอง ไม่มีการตัดเงิน
       </p>
 
       <div className="mt-4 rounded-control border border-line bg-surface-2 px-4 py-3.5 text-left">

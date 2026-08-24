@@ -84,7 +84,8 @@ export default async function LoginPage({ searchParams }: Props) {
           </div>
 
           <p className="mt-5 text-center text-meta text-faint">
-            ระบบสาธิต — ไม่รับเงินจริง และไม่มีการจ่ายเงินออกจริง
+            ระบบสาธิต — แพลตฟอร์มไม่ถือเงินและไม่จ่ายเงินออก ·
+            ยอดที่ผู้ชมโอนพร้อมสลิปเข้าบัญชีของคุณโดยตรง
           </p>
         </div>
       </main>

@@ -298,7 +298,7 @@ export default async function HomePage() {
         </main>
 
         <footer className="mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-6 pb-2 text-meta text-faint">
-          <span>DONATR — โปรเจกต์สาธิต ไม่รับเงินจริง</span>
+          <span>DONATR — โปรเจกต์สาธิต · แพลตฟอร์มไม่ถือเงินและไม่จ่ายเงินออก</span>
           <span className="flex items-center gap-3">
             <TechLabel>OBS</TechLabel>
             <TechLabel>PromptPay</TechLabel>

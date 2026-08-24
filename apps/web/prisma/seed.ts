@@ -44,7 +44,7 @@ async function main() {
       userId: user.id,
       slug: 'demo',
       displayName: 'Demo Streamer',
-      bio: 'บัญชีตัวอย่างสำหรับทดลองใช้งาน — ไม่ใช่สตรีมเมอร์จริง และไม่รับเงินจริง',
+      bio: 'บัญชีตัวอย่างสำหรับทดลองใช้งาน — ไม่ใช่สตรีมเมอร์จริง',
       minAmount: 2_000, // 20.00 THB
       maxAmount: 500_000, // 5,000.00 THB
     },

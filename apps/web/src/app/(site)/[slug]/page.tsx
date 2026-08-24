@@ -99,7 +99,9 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
   return {
     title: `ส่งโดเนทให้ ${streamer.displayName} — DONATR (demo)`,
-    description: streamer.bio ?? `หน้าโดเนทของ ${streamer.displayName} — ระบบสาธิต ไม่รับเงินจริง`,
+    description:
+      streamer.bio ??
+      `หน้าโดเนทของ ${streamer.displayName} — โปรเจกต์สาธิต แพลตฟอร์มไม่ถือเงินและไม่จ่ายเงินออก`,
   }
 }
 
@@ -245,7 +247,7 @@ export default async function DonatePage({ params }: Params) {
 
         <footer className="mt-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-line pt-5 text-meta text-faint">
           <p>ข้อความที่ส่งจะแสดงบนหน้าจอสตรีม — โปรดใช้ถ้อยคำสุภาพ</p>
-          <TechLabel>demo · ไม่รับเงินจริง</TechLabel>
+          <TechLabel>แพลตฟอร์มไม่ถือเงิน</TechLabel>
         </footer>
       </div>
     </>
