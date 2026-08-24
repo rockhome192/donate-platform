@@ -269,6 +269,7 @@ describe('EasySlipVerifier — whose fault is it', () => {
     ['INVALID_IMAGE_FORMAT', 'unreadable'],
     ['INVALID_IMAGE_TYPE', 'unreadable'],
     ['IMAGE_SIZE_TOO_LARGE', 'unreadable'],
+    ['VALIDATION_ERROR', 'unreadable'],
   ])('tells the donor about %s', async (code, reason) => {
     global.fetch = mockFetch(404, { success: false, error: { code, message: 'from easyslip' } })
 
@@ -276,6 +277,34 @@ describe('EasySlipVerifier — whose fault is it', () => {
       name: 'SlipRejectedError',
       reason,
     })
+  })
+
+  /*
+    Both messages are verbatim from the live API, probed 2026-08-24. The second
+    one is why this mapping changed: it reads as "you sent nothing", it is what
+    a real photo with no slip in it gets, and routing it to unavailable told
+    the donor to retry a photo that could never pass.
+  */
+  it.each([
+    ['a payload that is not a slip QR', 'Invalid bank slip format or verification failed'],
+    [
+      'an image with no slip in it',
+      'Please provide either a payload string, a image file, a base64 encoded image, or a image URL',
+    ],
+  ])('calls VALIDATION_ERROR unreadable — %s', async (_case, message) => {
+    global.fetch = mockFetch(400, {
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message },
+    })
+
+    const error = await new EasySlipVerifier()
+      .verify({ imageBase64: 'x' })
+      .catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(SlipRejectedError)
+    expect(error).toMatchObject({ reason: 'unreadable' })
+    // The upstream's own words survive, so a request bug is still findable in
+    // the log `submitSlip` writes for every rejection.
+    expect((error as Error).message).toBe(message)
   })
 
   it('does NOT tell the donor a pending Bangkok Bank slip does not exist', async () => {
@@ -301,7 +330,6 @@ describe('EasySlipVerifier — whose fault is it', () => {
     ['IP_NOT_ALLOWED', 'whitelist'],
     ['BRANCH_INACTIVE', 'branch switched off'],
     ['SERVICE_BANNED', 'terms'],
-    ['VALIDATION_ERROR', 'we built a bad request'],
     ['API_SERVER_ERROR', 'their upstream'],
   ])('keeps %s (%s) as OUR problem, not the donor’s', async (code) => {
     // 503, never 422. Out of quota is the one that matters most: it is the

@@ -66,15 +66,39 @@ const TIMEOUT_MS = 10_000
  *   is the correct advice. It falls through to unavailable, which answers 503
  *   and says "try again".
  *
- *   `VALIDATION_ERROR`, `URL_*` — we build the request, so these are bugs in
- *   this file. `IMAGE_URL_UNREACHABLE` in particular can never be the donor's
- *   doing: this adapter never sends `url`.
+ *   `URL_*` — we build the request and this adapter never sends `url`, so
+ *   `IMAGE_URL_UNREACHABLE` in particular can never be the donor's doing.
+ *
+ * `VALIDATION_ERROR` used to be listed here as ours too, and that was wrong.
+ * It reads like a complaint about our request, and one shape of it is exactly
+ * that — their validator names the field it disliked, e.g. `image: Invalid
+ * input: expected file, received string`. But probed against the live API on
+ * 2026-08-24 it is ALSO what an input they cannot read a slip out of comes
+ * back as, under a message that names no field at all:
+ *
+ *   a payload that is not a slip QR
+ *     -> `Invalid bank slip format or verification failed`
+ *   a real 168KB JPEG with no slip in it
+ *     -> `Please provide either a payload string, a image file, a base64
+ *        encoded image, or a image URL`
+ *
+ * The second is the trap. It reads as "you sent nothing", so it was routed to
+ * unavailable — which told a donor holding a blurry photo that OUR system was
+ * down and to try again, forever, because the same photo always loses. That is
+ * the failure this whole split exists to prevent, pointed the other way.
+ *
+ * `unreadable` is the safe side for this deployment: the only caller is
+ * `submitSlip`, and `submitSlipSchema` has already guaranteed exactly one
+ * non-empty input field, so "we sent nothing" is not a state this app can
+ * reach at runtime. A request bug would still be visible — `submitSlip` logs
+ * the upstream's own words on every rejection.
  */
 const REJECTIONS: Record<string, SlipRejectionReason> = {
   SLIP_NOT_FOUND: 'not_found', // forged, or the bank has no such transaction
   INVALID_IMAGE_FORMAT: 'unreadable', // corrupt, or not an image at all
   INVALID_IMAGE_TYPE: 'unreadable',
   IMAGE_SIZE_TOO_LARGE: 'unreadable', // over 4MB decoded; a smaller photo works
+  VALIDATION_ERROR: 'unreadable', // no slip in what we sent — see above
 }
 
 export class EasySlipVerifier implements SlipVerifier {
