@@ -2,7 +2,7 @@ import { profileSchema, promptPayPayload } from '@dp/shared'
 import { requireStreamer, sessionErrorResponse } from '@/lib/api-session'
 import { db, uniqueViolationTargets } from '@/lib/db'
 import { rateLimit } from '@/lib/rate-limit'
-import { ownsAvatarUrl, storageConfig } from '@/lib/storage'
+import { avatarKeyFromUrl, deleteObject, ownsAvatarUrl, storageConfig } from '@/lib/storage'
 
 /**
  * PATCH /api/me/profile — the streamer's own public identity.
@@ -80,6 +80,8 @@ export async function PATCH(req: Request) {
   const current = await db.streamer.findUnique({
     where: { id: session.streamerId },
     select: {
+      // Read for the delete-on-replace below, not for any of the validation.
+      avatarUrl: true,
       minAmount: true,
       maxAmount: true,
       bankCode: true,
@@ -107,9 +109,10 @@ export async function PATCH(req: Request) {
    * Checking the bucket alone was not enough either: avatar URLs are public and
    * sit in the page source of every donate page, so "on our bucket" let anyone
    * paste a rival's avatar in and impersonate them. ownsAvatarUrl also demands
-   * the key be under this caller's own namespace. Uploading through
-   * /api/me/avatar/upload-url is the only supported path, and this is what
-   * makes it the only one.
+   * the key be under this caller's own namespace. POST /api/me/avatar is the
+   * only path that writes to the bucket at all — it is also where the bytes are
+   * checked against the type they claim — and this is what makes it the only
+   * source of a URL that can be saved here.
    */
   if (patch.avatarUrl) {
     const storage = storageConfig()
@@ -213,6 +216,39 @@ export async function PATCH(req: Request) {
       data: patch,
       select: PROFILE_SELECT,
     })
+
+    /*
+      The picture this save replaced, deleted.
+
+      avatarKey() gives every upload a random name, so without this the bucket
+      keeps a copy of every profile picture a streamer has ever had and nothing
+      ever looks at them again. Nothing else in this app deletes from the
+      bucket, which is why the upload ticket is rationed as tightly as it is.
+
+      AFTER the update, never before: the delete is irreversible and the update
+      is the thing that can still fail (a taken slug, a dead connection). Losing
+      the old picture on a save that did not happen would leave the streamer
+      with neither.
+
+      Not awaited into the response either — `deleteObject` swallows its own
+      failures, and a profile save must not turn into a 500 because a bucket was
+      slow. An object left behind is exactly what the sweep is for.
+
+      The test is `!== undefined`, not truthiness: REMOVING a picture sends
+      avatarUrl: null, which is just as much a replacement of the old object as
+      sending a new URL is. Reading it as "no avatar in this patch" left the old
+      file sitting in the bucket until a sweep found it.
+    */
+    if (
+      patch.avatarUrl !== undefined &&
+      current.avatarUrl &&
+      current.avatarUrl !== patch.avatarUrl
+    ) {
+      const storage = storageConfig()
+      const stale = storage && avatarKeyFromUrl(storage, session.streamerId, current.avatarUrl)
+      if (storage && stale) void deleteObject(storage, stale)
+    }
+
     return Response.json({ streamer }, { headers: NO_STORE })
   } catch (e) {
     if (uniqueViolationTargets(e).includes('slug')) {

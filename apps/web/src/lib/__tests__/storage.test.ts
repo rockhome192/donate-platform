@@ -1,12 +1,20 @@
 import crypto from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   AVATAR_MAX_BYTES,
   UPLOAD_URL_TTL_SECONDS,
   avatarKey,
+  avatarKeyFromUrl,
+  deleteObject,
   deriveSigningKeyHex,
+  isAvatarKey,
+  listObjects,
+  objectExists,
   ownsAvatarUrl,
+  parseObjectListing,
   presignUpload,
+  publicUrlToKey,
+  putObject,
   storageConfig,
   type StorageConfig,
 } from '@/lib/storage'
@@ -247,6 +255,323 @@ describe('ownsAvatarUrl', () => {
     const nested: StorageConfig = { ...CONFIG, publicBaseUrl: 'https://cdn.example.com/media' }
     expect(ownsAvatarUrl(nested, MINE, `https://cdn.example.com/media/avatars/${MINE}/${UUID}.png`)).toBe(true)
     expect(ownsAvatarUrl(nested, MINE, ok)).toBe(false)
+  })
+})
+
+/** One <Contents> entry, in the shape ListObjectsV2 emits. */
+function contents(key: string, lastModified: string, size = 1024) {
+  return `<Contents><Key>${key}</Key><LastModified>${lastModified}</LastModified><ETag>&quot;abc&quot;</ETag><Size>${size}</Size><StorageClass>STANDARD</StorageClass></Contents>`
+}
+
+function listing(entries: string[], nextToken?: string) {
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>` +
+    `<Name>donatr</Name><Prefix>avatars/</Prefix>` +
+    `<IsTruncated>${nextToken ? 'true' : 'false'}</IsTruncated>` +
+    (nextToken ? `<NextContinuationToken>${nextToken}</NextContinuationToken>` : '') +
+    entries.join('') +
+    `</ListBucketResult>`
+  )
+}
+
+describe('parseObjectListing', () => {
+  it('reads the three fields a sweep needs', () => {
+    const { objects } = parseObjectListing(
+      listing([contents('avatars/str_1/a.png', '2026-09-01T00:00:00.000Z', 2048)]),
+    )
+
+    expect(objects).toEqual([
+      {
+        key: 'avatars/str_1/a.png',
+        lastModified: new Date('2026-09-01T00:00:00.000Z'),
+        size: 2048,
+      },
+    ])
+  })
+
+  /**
+   * A listing that stops early is the one input that makes a sweep delete
+   * things it should have kept: every key it never saw looks unreferenced.
+   */
+  it('reports the continuation token only when the listing is truncated', () => {
+    expect(parseObjectListing(listing([], 'tok123')).nextToken).toBe('tok123')
+    expect(parseObjectListing(listing([])).nextToken).toBeNull()
+  })
+
+  /** Skipping is the safe direction: an unread entry is an object left alone. */
+  it('skips an entry it cannot read rather than inventing one', () => {
+    const { objects } = parseObjectListing(
+      listing([
+        '<Contents><Key>avatars/str_1/a.png</Key></Contents>',
+        contents('avatars/str_1/b.png', 'not-a-date'),
+        contents('avatars/str_1/c.png', '2026-09-01T00:00:00.000Z'),
+      ]),
+    )
+
+    expect(objects.map((o) => o.key)).toEqual(['avatars/str_1/c.png'])
+  })
+
+  /**
+   * "There is more" and "here is where to continue" are one statement; half of
+   * it is not a smaller truth, it is an unusable answer. Returning null would
+   * read to listObjects as "that was the last page", which is the exact lie
+   * that makes a sweep believe it has seen the whole bucket.
+   */
+  it('throws when a listing claims to be truncated but names no token', () => {
+    const half =
+      '<ListBucketResult><IsTruncated>true</IsTruncated>' +
+      contents('avatars/str_1/a.png', '2026-09-01T00:00:00.000Z')
+
+    expect(() => parseObjectListing(half)).toThrow('continuation token')
+  })
+
+  it('undoes XML escaping in a key', () => {
+    const { objects } = parseObjectListing(
+      listing([contents('avatars/a&amp;b/c.png', '2026-09-01T00:00:00.000Z')]),
+    )
+
+    expect(objects[0]!.key).toBe('avatars/a&b/c.png')
+  })
+})
+
+describe('deleteObject', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('sends a signed DELETE for that one key', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 204 }) as Response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await deleteObject(CONFIG, 'avatars/str_1/a.png')).toBe(true)
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(init.method).toBe('DELETE')
+    expect(url).toContain('/avatars/str_1/a.png?')
+    expect(url).toContain('X-Amz-Signature=')
+    // host alone — a DELETE carries neither of the headers a PUT signs.
+    expect(url).toContain('X-Amz-SignedHeaders=host')
+  })
+
+  /** The caller wants the object gone. A key that was already gone satisfies that. */
+  it('counts a 404 as gone', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 }) as Response))
+    expect(await deleteObject(CONFIG, 'avatars/str_1/a.png')).toBe(true)
+  })
+
+  /**
+   * Both failure paths return false rather than throwing. The profile save
+   * calls this after the row is already written, and must not become a 500
+   * because a bucket was slow.
+   */
+  it('reports failure without throwing', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 }) as Response))
+    expect(await deleteObject(CONFIG, 'avatars/str_1/a.png')).toBe(false)
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('ETIMEDOUT')
+      }),
+    )
+    expect(await deleteObject(CONFIG, 'avatars/str_1/a.png')).toBe(false)
+  })
+})
+
+describe('objectExists', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('asks the bucket, signed, with HEAD', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }) as Response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await objectExists(CONFIG, 'tts/str_1/test-voice-deadbeef.mp3')).toBe(true)
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(init.method).toBe('HEAD')
+    // The S3 endpoint, not the public CDN base — a cached answer here would
+    // decide whether money is spent, and can be wrong in both directions.
+    expect(url).toContain('donatr.acct123.r2.cloudflarestorage.com')
+    expect(url).not.toContain('cdn.example.com')
+    expect(url).toContain('X-Amz-Signature=')
+  })
+
+  it('reads a 404 as not stored', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 }) as Response))
+
+    expect(await objectExists(CONFIG, 'tts/str_1/missing.mp3')).toBe(false)
+  })
+
+  /**
+   * Fail towards "not stored", which costs one re-synthesis. The other
+   * direction hands out a URL for a file that is not there, and the alert is
+   * silent with nothing to explain why.
+   */
+  it('reads an unreachable bucket as not stored, without throwing', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('ETIMEDOUT')
+      }),
+    )
+
+    expect(await objectExists(CONFIG, 'tts/str_1/a.mp3')).toBe(false)
+  })
+})
+
+describe('listObjects', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('follows continuation tokens to the end', async () => {
+    const pages = [
+      listing([contents('avatars/str_1/a.png', '2026-09-01T00:00:00.000Z')], 'tok1'),
+      listing([contents('avatars/str_2/b.png', '2026-09-02T00:00:00.000Z')]),
+    ]
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        urls.push(url)
+        return { ok: true, status: 200, text: async () => pages.shift()! } as Response
+      }),
+    )
+
+    const objects = await listObjects(CONFIG, 'avatars/')
+
+    expect(objects.map((o) => o.key)).toEqual(['avatars/str_1/a.png', 'avatars/str_2/b.png'])
+    expect(urls).toHaveLength(2)
+    expect(urls[0]).toContain('list-type=2')
+    expect(urls[1]).toContain('continuation-token=tok1')
+  })
+
+  /**
+   * Throwing beats returning a short list. A caller that treats a partial
+   * listing as complete deletes every object it could not see.
+   */
+  it('throws rather than returning half a listing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403 }) as Response))
+
+    await expect(listObjects(CONFIG, 'avatars/')).rejects.toThrow('403')
+  })
+
+  /** The same promise, for the subtler way a listing can be incomplete. */
+  it('throws rather than stopping at a page that names no successor', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            text: async () =>
+              '<ListBucketResult><IsTruncated>true</IsTruncated>' +
+              contents('avatars/str_1/a.png', '2026-09-01T00:00:00.000Z'),
+          }) as Response,
+      ),
+    )
+
+    await expect(listObjects(CONFIG, 'avatars/')).rejects.toThrow('continuation token')
+  })
+})
+
+describe('publicUrlToKey and avatarKeyFromUrl', () => {
+  const MINE = 'https://cdn.example.com/avatars/str_1/3f1e0c2a-1111-4222-8333-444455556666.png'
+  const THEIRS = 'https://cdn.example.com/avatars/str_2/3f1e0c2a-1111-4222-8333-444455556666.png'
+
+  it('both read the key out of our own URL', () => {
+    expect(publicUrlToKey(CONFIG, MINE)).toBe(
+      'avatars/str_1/3f1e0c2a-1111-4222-8333-444455556666.png',
+    )
+    expect(avatarKeyFromUrl(CONFIG, 'str_1', MINE)).toBe(
+      'avatars/str_1/3f1e0c2a-1111-4222-8333-444455556666.png',
+    )
+  })
+
+  /**
+   * The asymmetry, which is the whole reason there are two of these.
+   *
+   * "Which objects are spoken for" wants the widest possible answer — a row
+   * naming another streamer's key still keeps that object alive, because
+   * deleting it blanks a live page. "Which object may I delete" wants the
+   * narrowest, so it keeps ownsAvatarUrl's opinion.
+   */
+  it('part ways on a URL the row should not have named', () => {
+    expect(publicUrlToKey(CONFIG, THEIRS)).toBe(
+      'avatars/str_2/3f1e0c2a-1111-4222-8333-444455556666.png',
+    )
+    expect(avatarKeyFromUrl(CONFIG, 'str_1', THEIRS)).toBeNull()
+  })
+
+  it('both refuse a URL that is not on our bucket', () => {
+    expect(publicUrlToKey(CONFIG, 'https://evil.example/avatars/str_1/a.png')).toBeNull()
+    expect(publicUrlToKey(CONFIG, 'not a url')).toBeNull()
+    expect(avatarKeyFromUrl(CONFIG, 'str_1', 'https://evil.example/avatars/str_1/a.png')).toBeNull()
+  })
+})
+
+describe('isAvatarKey', () => {
+  it('accepts exactly what avatarKey emits', () => {
+    expect(isAvatarKey(avatarKey('str_1', 'image/png'))).toBe(true)
+  })
+
+  /** Anything this app did not mint is not the sweep's to delete. */
+  it('rejects anything else under the prefix', () => {
+    expect(isAvatarKey('avatars/str_1/notes.txt')).toBe(false)
+    expect(isAvatarKey('avatars/str_1/nested/a.png')).toBe(false)
+    expect(isAvatarKey('avatars/a.png')).toBe(false)
+    expect(isAvatarKey('tts/str_1/don_1.mp3')).toBe(false)
+  })
+})
+
+describe('putObject', () => {
+  const BYTES = new Uint8Array([1, 2, 3, 4]).buffer
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('signs the exact length it is about to send, and returns where to read it', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }) as Response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const url = await putObject(CONFIG, 'avatars/str_1/a.png', 'image/png', BYTES, 'test')
+
+    expect(url).toBe('https://cdn.example.com/avatars/str_1/a.png')
+    const [signed, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(init.method).toBe('PUT')
+    expect(init.body).toBe(BYTES)
+    // Signed, so R2 refuses a body of any other length — a bug on our side
+    // cannot quietly store the wrong number of bytes.
+    expect(signed).toContain('X-Amz-SignedHeaders=content-length%3Bcontent-type%3Bhost')
+  })
+
+  /**
+   * Null, never a throw. One caller is the webhook processor, where a donation
+   * that is PAID must stay PAID; the other turns null into a 502 of its own.
+   */
+  it('returns null on a refusal and on an unreachable bucket', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403 }) as Response))
+    expect(await putObject(CONFIG, 'k', 'image/png', BYTES, 'test')).toBeNull()
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('ETIMEDOUT')
+      }),
+    )
+    expect(await putObject(CONFIG, 'k', 'image/png', BYTES, 'test')).toBeNull()
   })
 })
 
