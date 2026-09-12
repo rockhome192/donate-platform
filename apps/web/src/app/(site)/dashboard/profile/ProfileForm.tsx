@@ -87,37 +87,23 @@ export function ProfileForm({ initial, uploadsEnabled }: Props) {
     setNotice(null)
     setUploading(true)
     try {
-      const ticket = await fetch('/api/me/avatar/upload-url', {
+      // One request, and the file goes through our own server rather than
+      // straight to the bucket. The point is that the bytes are looked at: the
+      // type is read out of the file itself, so a .exe renamed to .png is
+      // refused here instead of being stored under our name. `file.type` is
+      // only the opening claim, and the server checks it against the contents.
+      const res = await fetch('/api/me/avatar', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ contentType: file.type, size: file.size }),
-      })
-      const ticketBody = await ticket.json().catch(() => null)
-      if (!ticket.ok) {
-        setError(ticketBody?.error ?? `ขอลิงก์อัปโหลดไม่สำเร็จ (${ticket.status})`)
-        return
-      }
-
-      // Straight to storage, not through this app: a Vercel function has a body
-      // limit and a 60s ceiling, and proxying the bytes would spend both on
-      // something the browser can do itself.
-      //
-      // The headers come from the TICKET, never from the file. The server
-      // normalises the content type before signing it (`image/jpeg; charset=…`
-      // and any uppercase from a non-Chromium File.type both collapse), so
-      // sending `file.type` here would send a string that differs from the one
-      // inside the signature and R2 answers 403 SignatureDoesNotMatch.
-      const put = await fetch(ticketBody.uploadUrl, {
-        method: 'PUT',
-        headers: ticketBody.headers,
+        headers: { 'content-type': file.type || 'application/octet-stream' },
         body: file,
       })
-      if (!put.ok) {
-        setError(`อัปโหลดไม่สำเร็จ (${put.status})`)
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        setError(body?.error ?? `อัปโหลดไม่สำเร็จ (${res.status})`)
         return
       }
 
-      setAvatarUrl(ticketBody.publicUrl)
+      setAvatarUrl(body.publicUrl)
       setNotice('อัปโหลดรูปแล้ว — กด "บันทึก" เพื่อใช้รูปนี้')
     } catch {
       setError('อัปโหลดไม่สำเร็จ — เชื่อมต่อไม่ได้')
