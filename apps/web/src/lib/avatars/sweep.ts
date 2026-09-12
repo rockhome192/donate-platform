@@ -48,7 +48,7 @@ export type KeepReason = 'in-use' | 'too-new' | 'not-ours'
 export type SweepPlan = {
   remove: StoredObject[]
   kept: Record<KeepReason, number>
-  /** Bytes the removals would free. Reported so a dry run says what it is worth. */
+  /** Bytes the PLANNED removals would free. What a dry run is worth, if nothing changes. */
   bytes: number
 }
 
@@ -111,9 +111,49 @@ async function keysInUse(config: StorageConfig): Promise<Set<string>> {
   return keys
 }
 
+/**
+ * Is this key still unreferenced, asked again at the last possible moment?
+ *
+ * The plan is a photograph and the delete happens in the present, so between
+ * the two somebody can press Save. Re-reading the whole set rather than asking
+ * a narrower question on purpose: keysInUse is what decided the plan, and a
+ * second, cheaper opinion about which rows protect which keys is how the two
+ * drift apart.
+ *
+ * THE OBVIOUS OPTIMISATION IS WRONG, WHICH IS WHY THIS IS SPELLED OUT. Asking
+ * `where: { avatarUrl: publicUrlForKey(key) }` reads one row instead of all of
+ * them, and it matches on the exact string — while publicUrlToKey, which built
+ * the plan, ignores a query string and decodes percent-escapes. A row holding
+ * `…/aaa.png?v=2` protects that object under the rule the plan used and not
+ * under the rule the optimisation would use, and the whole of the disagreement
+ * surfaces as a deleted picture.
+ *
+ * So this is O(rows × deletions), knowingly: at a few hundred streamers it is
+ * not measurable, and it only starts to hurt somewhere north of a thousand of
+ * them with hundreds of orphans to clear. THE FIX AT THAT POINT IS NOT A
+ * NARROWER QUERY — it is to stop storing a URL and store the key, so that an
+ * indexed exact match IS the wide rule rather than a shrunken copy of it. That
+ * is a schema change worth making when something real asks for it, and not
+ * before: a second column describing the same thing as the first is a new rule
+ * that every future write has to remember, and the failure mode of forgetting
+ * it is this function reporting a live avatar as unused.
+ */
+async function stillUnused(config: StorageConfig, key: string): Promise<boolean> {
+  const inUse = await keysInUse(config)
+  return !inUse.has(key)
+}
+
 export type SweepResult = SweepPlan & {
   deleted: number
   failed: number
+  /** Planned, then spared because a row claimed it while the sweep was running. */
+  skipped: number
+  /**
+   * Bytes actually freed, which is not `bytes` once anything is skipped or
+   * fails. Two numbers rather than one, because "what we meant to do" and
+   * "what happened" stop agreeing exactly when somebody needs to know why.
+   */
+  bytesFreed: number
   dryRun: boolean
 }
 
@@ -144,17 +184,41 @@ export async function sweepAvatars(
   const inUse = await keysInUse(config)
 
   const plan = planAvatarSweep(objects, inUse, now)
-  if (dryRun) return { ...plan, deleted: 0, failed: 0, dryRun: true }
+  if (dryRun) {
+    return { ...plan, deleted: 0, failed: 0, skipped: 0, bytesFreed: 0, dryRun: true }
+  }
 
   let deleted = 0
   let failed = 0
+  let skipped = 0
+  let bytesFreed = 0
   for (const object of plan.remove) {
     // One at a time rather than Promise.all: this runs at most once a day
     // against a bucket measured in hundreds of objects, and a burst of parallel
     // deletes against a rate limit is a way to turn a tidy-up into an outage.
-    if (await deleteObject(config, object.key)) deleted++
-    else failed++
+    //
+    // Which is exactly why the plan cannot be trusted by the time we get here.
+    // Deleting two hundred objects at a fifth of a second each takes forty
+    // seconds, and the decision about the last one was made before the first
+    // was touched. A streamer who uploaded a picture yesterday and clicks Save
+    // during those forty seconds has a row pointing at a key this loop is on
+    // its way to delete — old enough that the grace period is spent, saved too
+    // late for the plan to have seen it. Asked again here, the answer changes.
+    if (!(await stillUnused(config, object.key))) {
+      // Counted and reported rather than passed over quietly: a sweep that
+      // says "deleted 199" when it planned 200 should say where the other one
+      // went.
+      skipped++
+      continue
+    }
+
+    if (await deleteObject(config, object.key)) {
+      deleted++
+      bytesFreed += object.size
+    } else {
+      failed++
+    }
   }
 
-  return { ...plan, deleted, failed, dryRun: false }
+  return { ...plan, deleted, failed, skipped, bytesFreed, dryRun: false }
 }

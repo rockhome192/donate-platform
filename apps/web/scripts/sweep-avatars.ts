@@ -49,7 +49,10 @@ async function main() {
     return
   }
 
-  console.log(`\ndeleted ${result.deleted}, freed ${formatBytes(result.bytes)}`)
+  console.log(`\ndeleted ${result.deleted}, freed ${formatBytes(result.bytesFreed)}`)
+  if (result.skipped > 0) {
+    console.log(`${result.skipped} skipped — claimed by a profile while the sweep ran`)
+  }
   if (result.failed > 0) {
     // Not a crash: the next run picks them up, and the ones that did go are
     // already gone. A non-zero exit is how a cron job says "look at me".

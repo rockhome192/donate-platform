@@ -171,6 +171,53 @@ describe('sweepAvatars', () => {
     expect(result).toMatchObject({ deleted: 1, failed: 0, dryRun: false })
   })
 
+  /**
+   * The gap the plan cannot see. Deleting 200 objects at a fifth of a second
+   * each takes forty seconds, and the last one was judged before the first was
+   * touched — so a row saved during the loop points at a key already condemned.
+   * Old enough that the grace period is spent, saved too late for the plan.
+   */
+  it('spares an object a row claims while the loop is running', async () => {
+    const claimed = `avatars/str_1/${UUID}.png`
+    const orphan = `avatars/str_2/${UUID}.png`
+    storage.listObjects.mockResolvedValue([object(claimed), object(orphan)])
+
+    // Nothing is in use when the plan is made...
+    dbMock.streamer.findMany.mockResolvedValueOnce([])
+    // ...and then someone presses Save, so every later read sees the claim.
+    dbMock.streamer.findMany.mockResolvedValue([
+      { avatarUrl: `https://cdn.example.com/${claimed}` },
+    ])
+
+    const result = await sweepAvatars({ dryRun: false, now: NOW })
+
+    expect(result).toMatchObject({ deleted: 1, skipped: 1, failed: 0 })
+    // The condemned key is spared; the real orphan still goes.
+    const deletedKeys = storage.deleteObject.mock.calls.map((c) => c[1])
+    expect(deletedKeys).toEqual([orphan])
+  })
+
+  /**
+   * "What we meant to do" and "what happened" stop agreeing exactly when
+   * somebody needs to know why, so they are two numbers.
+   */
+  it('reports the bytes it actually freed, not the bytes it planned to', async () => {
+    const claimed = `avatars/str_1/${UUID}.png`
+    storage.listObjects.mockResolvedValue([
+      object(claimed, undefined, 4096),
+      object(`avatars/str_2/${UUID}.png`, undefined, 1024),
+    ])
+    dbMock.streamer.findMany.mockResolvedValueOnce([])
+    dbMock.streamer.findMany.mockResolvedValue([
+      { avatarUrl: `https://cdn.example.com/${claimed}` },
+    ])
+
+    const result = await sweepAvatars({ dryRun: false, now: NOW })
+
+    expect(result.bytes).toBe(5120)
+    expect(result.bytesFreed).toBe(1024)
+  })
+
   it('counts a delete that did not take, without stopping', async () => {
     storage.listObjects.mockResolvedValue([
       object(`avatars/str_1/${UUID}.png`),
