@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { TEST_ALERT_ID_PREFIX, TEST_ALERT_SAMPLE, type AlertPayload } from '@dp/shared'
 import { requireStreamer, sessionErrorResponse } from '@/lib/api-session'
+import { db } from '@/lib/db'
 import { rateLimit } from '@/lib/rate-limit'
 import { publishToOverlay } from '@/lib/realtime/publish'
+import { synthesizeTestSpeech } from '@/lib/tts'
 
 /**
  * POST /api/me/test-alert — DESIGN.md 4.2, 9.
@@ -29,6 +31,11 @@ import { publishToOverlay } from '@/lib/realtime/publish'
  * real donations are worth interrupting a stream for; this endpoint is testing
  * the wiring, and a test that silently does nothing because of a setting the
  * streamer forgot is a worse answer than no test button at all.
+ *
+ * ttsEnabled and soundVolume ARE consulted, which is not a contradiction: the
+ * threshold is about which donations matter, while those two are the streamer
+ * saying they do not want a voice at all. Speaking anyway would be testing
+ * something they turned off.
  */
 
 export const runtime = 'nodejs'
@@ -55,12 +62,44 @@ export async function POST() {
     )
   }
 
+  // The only read this endpoint makes, and only for the two settings that
+  // decide whether a voice is wanted. Absent row means the Prisma defaults,
+  // where ttsEnabled is false — so a streamer who has never opened the alert
+  // settings gets the chime and nothing paid.
+  const setting = await db.alertSetting.findUnique({
+    where: { streamerId: session.streamerId },
+    select: { ttsEnabled: true, soundVolume: true },
+  })
+
+  /*
+    The voice line.
+
+    This used to be a flat `ttsUrl: null` to keep the button free, which made
+    the voice the one part of an alert that nobody could check before going
+    live — the failure it hid, an unset speech key, looks from the streamer's
+    chair exactly like a working one.
+
+    It costs nothing per press now. The sentence is a constant, so
+    synthesizeTestSpeech keys the recording by streamer, voice and sentence and
+    reuses it: the first press pays ~62 characters of a 500,000-a-month free
+    tier and the rest are a lookup. That is deliberate rather than lucky — a
+    version that paid per press needed a budget of its own, and a budget would
+    have run out mid-setup, on the day somebody is pressing test thirty times
+    because they are dragging an OBS source into place.
+
+    Null is an ordinary outcome — TTS off, volume at zero, no key configured, or
+    Azure having a bad minute — and every one of them still delivers the alert.
+    Testing the OBS wiring is the job; the voice is the accessory.
+  */
+  const ttsUrl = await synthesizeTestSpeech({
+    streamerId: session.streamerId,
+    enabled: setting?.ttsEnabled ?? false,
+    volume: setting?.soundVolume ?? 0,
+  })
+
   const alert: AlertPayload = {
     id: `${TEST_ALERT_ID_PREFIX}${randomUUID()}`,
-    // No voice line on a test alert, deliberately. This button exists to be
-    // pressed repeatedly while pointing OBS at the right URL, and every press
-    // would otherwise spend paid characters saying a sentence nobody needs.
-    ttsUrl: null,
+    ttsUrl,
     ...TEST_ALERT_SAMPLE,
     createdAt: new Date().toISOString(),
   }

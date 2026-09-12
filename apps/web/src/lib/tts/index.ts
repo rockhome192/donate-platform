@@ -7,14 +7,18 @@
  * misconfigured, or nobody set a key.
  */
 
-import { presignUpload, storageConfig } from '@/lib/storage'
+import { TEST_ALERT_SAMPLE } from '@dp/shared'
+import {
+  objectExists,
+  publicUrlForKey,
+  putObject,
+  storageConfig,
+  type StorageConfig,
+} from '@/lib/storage'
 import { synthesizeWithAzure, type AzureTtsConfig } from './azure'
 import { ttsTextFor, type TtsSubject } from './text'
 
 export { TTS_MAX_CHARS, ttsTextFor, escapeSsml } from './text'
-
-/** Ceiling on the store half of the round trip. See the PUT below. */
-const UPLOAD_TIMEOUT_MS = 8_000
 
 /** Azure's Thai neural voices. Premwadee is the female default. */
 export const DEFAULT_TTS_VOICE = 'th-TH-PremwadeeNeural'
@@ -60,8 +64,46 @@ export function ttsKey(streamerId: string, donationId: string): string {
   return `tts/${streamerId}/${donationId}.mp3`
 }
 
-export type TtsRequest = TtsSubject & {
-  donationId: string
+/**
+ * Where a test alert's voice line lands.
+ *
+ * Every input that could change what the file SAYS is in the name, and that is
+ * what makes the object reusable instead of merely overwritable. A press whose
+ * key already exists is a press that needs no Azure call at all: the sentence
+ * is a constant, so the second press and the thousandth are asking for a
+ * recording that was already made.
+ *
+ * The voice, because switching TTS_VOICE must be heard on the next press rather
+ * than replaying what the old voice recorded. The fingerprint, because editing
+ * TEST_ALERT_SAMPLE must do the same — a reusable object with no version in its
+ * name is an object that keeps saying last month's sentence forever, and that
+ * trap is the reason this was written as a plain overwrite first.
+ *
+ * Neither input is typed by a donor, but both land in an object key, so both
+ * are stripped down to characters that cannot walk out of the prefix.
+ */
+export function testTtsKey(streamerId: string, voice: string, fingerprint: string): string {
+  const safe = (value: string) => value.replace(/[^A-Za-z0-9-]/g, '-')
+  return `tts/${streamerId}/test-${safe(voice)}-${safe(fingerprint)}.mp3`
+}
+
+/**
+ * Eight hex characters of SHA-256 over the sentence.
+ *
+ * Long enough that two different sentences colliding is not a thing that
+ * happens; short enough to read in a bucket listing. It is a cache key, not a
+ * security boundary — nobody gains anything by finding a collision with a
+ * string this app chose itself.
+ */
+async function fingerprintOf(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return Array.from(new Uint8Array(digest).slice(0, 4))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/** What both callers must clear before anything paid happens. */
+type TtsGate = {
   streamerId: string
   /** The streamer's AlertSetting.ttsEnabled. False here means "do not spend anything". */
   enabled: boolean
@@ -71,6 +113,43 @@ export type TtsRequest = TtsSubject & {
    * paying for silence.
    */
   volume: number
+}
+
+export type TtsRequest = TtsSubject & TtsGate & { donationId: string }
+
+/** A test alert says a fixed sentence, so there is no subject to hand over. */
+export type TtsTestRequest = TtsGate
+
+/**
+ * The half both callers share: say it, store it, hand back the URL.
+ *
+ * `label` reaches nothing but a log line. It exists because "which donation
+ * failed" and "which streamer pressed test" are the two questions asked of
+ * these logs, and one of them has no donation id.
+ */
+async function synthesizeToKey(
+  tts: AzureTtsConfig,
+  storage: StorageConfig,
+  text: string,
+  key: string,
+  label: string,
+): Promise<string | null> {
+  let speech: Awaited<ReturnType<typeof synthesizeWithAzure>>
+  try {
+    speech = await synthesizeWithAzure(tts, text)
+  } catch (err) {
+    // Logged, not thrown: on the donation path the caller is the webhook
+    // processor, and a donation that is PAID must stay PAID and still reach the
+    // overlay. The test button has the weaker version of the same need — an
+    // alert with no voice still proves the OBS wiring.
+    console.error(`[tts] synthesis failed for ${label}:`, err)
+    return null
+  }
+
+  // The store half has the same must-not-throw contract, and putObject already
+  // holds it — including the timeout, for the same reason the synthesis call
+  // has one: this runs inside the webhook handler, ahead of the publish.
+  return putObject(storage, key, speech.contentType, speech.audio, label)
 }
 
 /**
@@ -92,31 +171,48 @@ export async function synthesizeDonationSpeech(req: TtsRequest): Promise<string 
   const text = ttsTextFor(req)
   if (!text) return null
 
-  try {
-    const speech = await synthesizeWithAzure(tts, text)
+  return synthesizeToKey(
+    tts,
+    storage,
+    text,
+    ttsKey(req.streamerId, req.donationId),
+    `donation=${req.donationId}`,
+  )
+}
 
-    const key = ttsKey(req.streamerId, req.donationId)
-    const upload = await presignUpload(storage, key, speech.contentType, speech.audio.byteLength)
+/**
+ * The same sentence the test alert puts on screen, spoken.
+ *
+ * Worth saying at all because without it the only way to find out whether the
+ * voice reaches OBS is to wait for a real donation, which is the opposite of
+ * what a test button is for.
+ *
+ * SYNTHESISED AT MOST ONCE per streamer, voice and sentence. The first press
+ * pays ~62 characters; every press after it finds the object already there and
+ * hands back the same URL. That is what lets this endpoint keep its ordinary
+ * 10-a-minute ceiling instead of needing a budget of its own: somebody dragging
+ * an OBS source around and pressing test thirty times in a row is doing exactly
+ * what the button is for, and it costs nothing after the first.
+ *
+ * Returns null for the same reasons a donation does — TTS off, muted, nothing
+ * configured, or the call failed — and never throws.
+ */
+export async function synthesizeTestSpeech(req: TtsTestRequest): Promise<string | null> {
+  if (!req.enabled || req.volume <= 0) return null
 
-    const put = await fetch(upload.uploadUrl, {
-      method: 'PUT',
-      headers: upload.headers,
-      body: speech.audio,
-      // The same reasoning as the timeout on the synthesis call, and it has to
-      // be on both halves: this runs inside the webhook handler, ahead of the
-      // publish, so a hung PUT delays the alert exactly as a hung Azure would.
-      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
-    })
-    if (!put.ok) {
-      console.error(`[tts] upload failed ${put.status} for donation=${req.donationId}`)
-      return null
-    }
+  const tts = ttsConfig()
+  const storage = storageConfig()
+  if (!tts || !storage) return null
 
-    return upload.publicUrl
-  } catch (err) {
-    // Logged, not thrown: the caller is the webhook processor, and a donation
-    // that is PAID must stay PAID and still reach the overlay.
-    console.error(`[tts] synthesis failed for donation=${req.donationId}:`, err)
-    return null
-  }
+  const text = ttsTextFor(TEST_ALERT_SAMPLE)
+  if (!text) return null
+
+  const key = testTtsKey(req.streamerId, tts.voice, await fingerprintOf(text))
+
+  // Asked before paying, and a false answer for any reason — bucket unreachable,
+  // a timeout, an odd status — costs one re-synthesis rather than a URL pointing
+  // at nothing. objectExists is written to fail in that direction.
+  if (await objectExists(storage, key)) return publicUrlForKey(storage, key)
+
+  return synthesizeToKey(tts, storage, text, key, `test streamer=${req.streamerId}`)
 }
