@@ -30,8 +30,13 @@ const NO_STORE = { 'cache-control': 'no-store' } as const
 /**
  * Tighter than the profile save. Each granted ticket is a writable object key,
  * and issuing them is the cheap half of an upload.
+ *
+ * Deliberately small. Nothing is ever deleted from the bucket, so every ticket
+ * a caller redeems is storage held forever: at 20 per 10 minutes one account
+ * can park 5.7 GB a day, which is the whole free tier inside two. Changing a
+ * profile picture five times an hour is already more than anyone does.
  */
-const RATE_LIMIT = { requests: 20, windowSeconds: 60 * 10 }
+const RATE_LIMIT = { requests: 5, windowSeconds: 60 * 60 }
 
 const bodySchema = z.object({
   contentType: z.string().trim().max(100),
@@ -56,6 +61,18 @@ export async function POST(req: Request) {
     RATE_LIMIT.requests,
     RATE_LIMIT.windowSeconds,
   )
+  // Fail CLOSED here, unlike every other caller of rateLimit. The usual
+  // argument for fail-open is that a limiter outage must not stop people
+  // paying; it does not carry over to avatars, where nobody is harmed by
+  // waiting and an uncounted burst fills a bucket that has no delete path.
+  // Redis down means no new tickets.
+  if (limit.verdict === 'unavailable') {
+    return Response.json(
+      { error: 'ระบบอัปโหลดไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่อีกครั้ง' },
+      { status: 503, headers: { ...NO_STORE, 'retry-after': '60' } },
+    )
+  }
+
   if (!limit.ok) {
     return Response.json(
       { error: 'ขออัปโหลดถี่เกินไป กรุณารอสักครู่' },

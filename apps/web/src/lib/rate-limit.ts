@@ -6,6 +6,11 @@
  * payment path down with it is worse than the abuse it prevents. The one place
  * this trade-off would be wrong is auth, and auth does not use this.
  *
+ * Fail-open is not right everywhere, though, so every result carries a
+ * `verdict` saying whether anything was actually counted. A caller where an
+ * unlimited burst costs storage rather than noise -- the avatar upload -- reads
+ * it and refuses to serve while the limiter is down.
+ *
  * Upstash is optional in dev (see .env.example) — with no credentials every
  * check allows, and says so once at boot rather than on every request.
  */
@@ -14,9 +19,23 @@ export type RateLimitResult = {
   ok: boolean
   /** Seconds until the window resets. Only meaningful when ok === false. */
   retryAfter: number
+  /**
+   * Why `ok` says what it says -- the difference between "allowed" and "nothing
+   * was counted", which `ok: true` alone cannot express.
+   *
+   *   'counted'      Redis answered. `ok` is a real verdict.
+   *   'disabled'     No Upstash credentials at all (dev). Nothing was counted.
+   *   'unavailable'  Configured, but the call failed. Nothing was counted.
+   *
+   * Most callers should keep ignoring this. 'disabled' stays permissive on
+   * purpose so a dev machine with no Redis still works.
+   */
+  verdict: 'counted' | 'disabled' | 'unavailable'
 }
 
-const ALLOWED: RateLimitResult = { ok: true, retryAfter: 0 }
+const COUNTED: RateLimitResult = { ok: true, retryAfter: 0, verdict: 'counted' }
+const DISABLED: RateLimitResult = { ok: true, retryAfter: 0, verdict: 'disabled' }
+const UNAVAILABLE: RateLimitResult = { ok: true, retryAfter: 0, verdict: 'unavailable' }
 
 let warnedDisabled = false
 
@@ -44,7 +63,7 @@ export async function rateLimit(
   windowSeconds: number,
 ): Promise<RateLimitResult> {
   const creds = credentials()
-  if (!creds) return ALLOWED
+  if (!creds) return DISABLED
 
   try {
     // INCR then EXPIRE-if-first, pipelined into one round trip. Fixed window
@@ -68,7 +87,7 @@ export async function rateLimit(
 
     if (!res.ok) {
       console.warn(`[rate-limit] upstash responded ${res.status} — allowing`)
-      return ALLOWED
+      return UNAVAILABLE
     }
 
     const body = (await res.json()) as Array<{ result?: unknown; error?: string }>
@@ -77,18 +96,18 @@ export async function rateLimit(
 
     if (!Number.isFinite(count)) {
       console.warn('[rate-limit] unexpected upstash payload — allowing')
-      return ALLOWED
+      return UNAVAILABLE
     }
 
     if (count > limit) {
       // TTL is -1 when the key somehow has no expiry set; fall back to the full
       // window so the client is not told to retry immediately, forever.
-      return { ok: false, retryAfter: ttl > 0 ? ttl : windowSeconds }
+      return { ok: false, retryAfter: ttl > 0 ? ttl : windowSeconds, verdict: 'counted' }
     }
-    return ALLOWED
+    return COUNTED
   } catch (e) {
     console.warn('[rate-limit] upstash unreachable — allowing', e)
-    return ALLOWED
+    return UNAVAILABLE
   }
 }
 
