@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache'
 import Link from 'next/link'
 import { getServerSession } from 'next-auth'
 import { formatBaht } from '@dp/shared'
@@ -64,6 +65,59 @@ const STEPS = [
   },
 ] as const
 
+/**
+ * The ticker's contents. Public already — every one of these was read aloud on a
+ * stream by the alert this page is advertising.
+ *
+ * Wrapped and cached for two different reasons, both of which showed up on
+ * 2026-09-22, when this page answered every visitor with a 500:
+ *
+ * - **Wrapped**, because Neon's free plan answers every query with "exceeded the
+ *   quota" once the month's compute is spent, and an unhandled throw in here
+ *   takes down the landing page — the one URL a stranger reaches first. A page
+ *   without its ticker is a page with one section less; a throw is no page at
+ *   all. The render below already hides the row under TICKER_MIN, so an empty
+ *   array needs no markup of its own.
+ * - **Cached**, because `force-dynamic` meant one query per request, so every
+ *   crawler walking the site woke the database. 60s is short enough that a
+ *   donation made during a live demo still appears while the tab is open.
+ */
+const loadTicker = unstable_cache(
+  async () => {
+    try {
+      return await db.donation.findMany({
+        where: { status: 'PAID' },
+        orderBy: { paidAt: 'desc' },
+        take: TICKER_LIMIT,
+        select: { id: true, donorName: true, amount: true, message: true },
+      })
+    } catch (err) {
+      console.error('[landing] ticker query failed, rendering the page without it:', err)
+      return []
+    }
+  },
+  ['landing-ticker'],
+  { revalidate: 60 },
+)
+
+/**
+ * The header chip's name and picture. Same argument as above — losing the
+ * picture is not worth losing the page, and the caller already falls back to the
+ * session email. Not cached: this is per-session data.
+ */
+async function loadSignedInStreamer(streamerId: string | null | undefined) {
+  if (!streamerId) return null
+  try {
+    return await db.streamer.findUnique({
+      where: { id: streamerId },
+      select: { displayName: true, avatarUrl: true },
+    })
+  } catch (err) {
+    console.error('[landing] streamer lookup failed, falling back to the email:', err)
+    return null
+  }
+}
+
 export default async function HomePage() {
   /*
     This page is what a signed-in streamer sees if they click the wordmark, and
@@ -73,27 +127,14 @@ export default async function HomePage() {
 
     So the header reads the session and shows who is signed in instead. The
     page was already `force-dynamic` for the ticker below, so this costs one
-    more query on a request that was never being cached anyway.
+    more read on a request that is not cached anyway — the session is why the
+    page stays dynamic even now that the ticker query itself is cached.
   */
   const session = await getServerSession(authOptions)
 
   const [recent, streamer] = await Promise.all([
-    /**
-     * The ticker's contents. Public already — every one of these was read aloud
-     * on a stream by the alert this page is advertising.
-     */
-    db.donation.findMany({
-      where: { status: 'PAID' },
-      orderBy: { paidAt: 'desc' },
-      take: TICKER_LIMIT,
-      select: { id: true, donorName: true, amount: true, message: true },
-    }),
-    session?.user?.streamerId
-      ? db.streamer.findUnique({
-          where: { id: session.user.streamerId },
-          select: { displayName: true, avatarUrl: true },
-        })
-      : null,
+    loadTicker(),
+    loadSignedInStreamer(session?.user?.streamerId),
   ])
 
   // An admin has a session and no Streamer row, so the name falls back to the
