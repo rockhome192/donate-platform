@@ -53,6 +53,13 @@ describe('checkStreamerRules', () => {
     expect(failure?.status).toBe(409)
   })
 
+  it('rejects an amount that is not a whole number of satang', () => {
+    const failure = checkStreamerRules(NaN, streamer)
+    expect(failure?.status).toBe(422)
+    expect(checkStreamerRules(1.5, streamer)?.status).toBe(422)
+    expect(checkStreamerRules(Infinity, streamer)?.status).toBe(422)
+  })
+
   it('refuses an inactive streamer', () => {
     expect(checkStreamerRules(5_000, { ...streamer, isActive: false })?.status).toBe(409)
   })
