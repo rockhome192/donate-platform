@@ -54,6 +54,10 @@ export function checkStreamerRules(
     return { status: 409, message: 'การตั้งค่าจำนวนเงินของสตรีมเมอร์ไม่ถูกต้อง ยังรับโดเนทไม่ได้' }
   }
 
+  if (!Number.isInteger(amountSatang)) {
+    return { status: 422, field: 'amount', message: 'จำนวนเงินไม่ถูกต้อง กรุณาใส่เป็นตัวเลข' }
+  }
+
   if (amountSatang < streamer.minAmount) {
     return {
       status: 422,
