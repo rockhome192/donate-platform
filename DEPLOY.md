@@ -67,7 +67,7 @@ $b = New-Object byte[] 32; [System.Security.Cryptography.RandomNumberGenerator]:
    | `REALTIME_JWT_SECRET` | ค่าจากข้อ 0 |
    | `REALTIME_INTERNAL_SECRET` | ค่าจากข้อ 0 |
    | `CRON_SECRET` | ค่าจากข้อ 0 |
-   | `RECONCILE_INTERVAL_MS` | `300000` (ไม่ใส่ก็ default เท่านี้) |
+   | `RECONCILE_INTERVAL_MS` | ไม่ต้องใส่ (default 3600000 = 1 ชม.) |
 
    **ยังไม่ต้องใส่ `ALLOWED_ORIGINS` กับ `WEB_APP_URL`** — รอโดเมน Vercel ในข้อ 3
    **และห้ามใส่ `PORT`** Railway ฉีดให้เอง ถ้าไปกำหนดทับ edge proxy กับ process
