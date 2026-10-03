@@ -11,9 +11,32 @@
  * It carries no payment logic on purpose — it is a clock with an HTTP client.
  * All the reconciling happens in apps/web, which is the side that has Prisma
  * and the provider keys.
+ *
+ * ## Why the interval is an hour and not five minutes (2026-09-22)
+ *
+ * Every cycle runs at least three Postgres queries — findMany, updateMany,
+ * count — whether or not there is anything to reconcile. Neon suspends an idle
+ * compute after five minutes, so a cycle every five minutes landed exactly
+ * inside that window and the database never once got to sleep: roughly 720
+ * compute hours a month against a free plan that includes a fraction of that.
+ * It ran out mid-month and then answered every query, including the landing
+ * page's, with "exceeded the quota" — a clock ticking on an empty demo took
+ * down the site it was protecting.
+ *
+ * An hour lets the compute suspend between cycles, and the daily Vercel cron is
+ * still the backstop under that. The cost is that a donation whose after()
+ * crashed can now sit PENDING for up to an hour instead of five minutes. On a
+ * demo where no real money moves that is the cheaper of the two failures; on a
+ * product with live donors, set RECONCILE_INTERVAL_MS back down and pay for a
+ * database that is allowed to stay awake.
+ *
+ * The real fix, if this ever carries real traffic: have the route look at a
+ * Redis key that the webhook path sets, and skip the Postgres round trip
+ * entirely when nothing has arrived. Upstash is already wired up for the
+ * uploads. Not done here because it touches the payment rescue path.
  */
 
-const DEFAULT_INTERVAL_MS = 5 * 60_000
+const DEFAULT_INTERVAL_MS = 60 * 60_000
 
 export type ReconcilerDriver = { stop: () => void }
 
