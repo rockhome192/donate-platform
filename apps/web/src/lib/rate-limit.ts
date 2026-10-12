@@ -118,7 +118,7 @@ export async function rateLimit(
  * anything security-critical.
  */
 export function clientIp(headers: Headers): string {
-  const forwarded = headers.get('x-forwarded-for')
-  if (forwarded) return forwarded.split(',')[0]!.trim()
+  const first = headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+  if (first) return first
   return headers.get('x-real-ip')?.trim() || 'unknown'
 }

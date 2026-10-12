@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { rateLimit } from '@/lib/rate-limit'
+import { clientIp, rateLimit } from '@/lib/rate-limit'
 
 /**
  * The limiter returns two promises in one object, and they pull opposite ways.
@@ -150,5 +150,14 @@ describe('the fail-open promise the other thirteen callers depend on', () => {
       expect(result.ok).toBe(true)
       expect(result.verdict).toBe('unavailable')
     }
+  })
+})
+describe('clientIp', () => {
+  it('falls back to x-real-ip when the first forwarded entry is empty', () => {
+    const headers = new Headers({
+      'x-forwarded-for': ', 1.2.3.4',
+      'x-real-ip': '9.9.9.9',
+    })
+    expect(clientIp(headers)).toBe('9.9.9.9')
   })
 })
