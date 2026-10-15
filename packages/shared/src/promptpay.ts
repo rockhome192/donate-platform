@@ -68,7 +68,8 @@ export type PromptPayTarget = { type: 'phone'; value: string }
  * country code 0066 followed by the number without its leading zero.
  */
 export function promptPayPhone(raw: string): string | null {
-  const digits = raw.replace(/\D/g, '')
+  // 0066 is the dial-out form of +66, and this function's own output.
+  const digits = raw.replace(/\D/g, '').replace(/^00/, '')
   // 0812345678 -> 812345678, and an already-prefixed 66812345678 too.
   const local = digits.startsWith('66') ? digits.slice(2) : digits.replace(/^0/, '')
   if (local.length !== 9) return null

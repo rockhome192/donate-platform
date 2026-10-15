@@ -31,6 +31,7 @@ describe('promptPayPhone', () => {
     ['081-234-5678', '0066812345678'],
     ['66812345678', '0066812345678'],
     ['+66 81 234 5678', '0066812345678'],
+    ['0066812345678', '0066812345678'],
   ])('normalises %s', (raw, expected) => {
     expect(promptPayPhone(raw)).toBe(expected)
   })
