@@ -94,6 +94,11 @@ describe('afterTicket', () => {
     expect(afterTicket(429, 1, 10, noJitter)).toMatchObject({ delayMs: 15_000 })
   })
 
+  it('ignores a NaN Retry-After instead of retrying at once', () => {
+    // NaN slipped past the undefined check; Math.max(500, NaN) is NaN.
+    expect(afterTicket(429, NaN, 0, noJitter)).toMatchObject({ delayMs: 500 })
+  })
+
   it('advances the attempt counter so the next wait is longer', () => {
     const first = afterTicket(500, undefined, 0, noJitter)
     expect(first).toMatchObject({ attempt: 1 })

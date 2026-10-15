@@ -111,7 +111,9 @@ export function ticketOutcome(status: number, retryAfterSeconds?: number): Ticke
   if (status === 404 || status === 401) return { action: 'stop', reason: 'token-invalid' }
   if (status === 403) return { action: 'stop', reason: 'suspended' }
   if (status === 429) {
-    return retryAfterSeconds === undefined
+    // NaN or Infinity would make the caller's delay NaN or Infinity: retry at
+    // once in a tight loop, or never. Treat both as no header at all.
+    return retryAfterSeconds === undefined || !Number.isFinite(retryAfterSeconds)
       ? { action: 'retry' }
       : { action: 'retry', retryAfterMs: retryAfterSeconds * 1000 }
   }
