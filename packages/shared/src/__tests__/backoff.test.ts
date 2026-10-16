@@ -36,4 +36,8 @@ describe('backoffDelay', () => {
   it('rejects negative attempts', () => {
     expect(() => backoffDelay(-1)).toThrow(RangeError)
   })
+
+  it('rejects NaN attempts', () => {
+    expect(() => backoffDelay(NaN)).toThrow(RangeError)
+  })
 })
