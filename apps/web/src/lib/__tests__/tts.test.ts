@@ -10,10 +10,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * said about it.
  */
 
-const azure = vi.hoisted(() => ({ synthesizeWithAzure: vi.fn() }))
+const azure = vi.hoisted(() => ({ synthesizeWithAzure: vi.fn(), checkAzureKey: vi.fn() }))
 vi.mock('@/lib/tts/azure', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/tts/azure')>()),
   synthesizeWithAzure: azure.synthesizeWithAzure,
+  checkAzureKey: azure.checkAzureKey,
 }))
 
 /**
@@ -92,6 +93,9 @@ beforeEach(() => {
     audio: new Uint8Array([1, 2, 3]).buffer,
     contentType: 'audio/mpeg',
   })
+  azure.checkAzureKey.mockReset()
+  // The key works, unless a test says otherwise.
+  azure.checkAzureKey.mockResolvedValue(true)
   puts = []
   storage.objectExists.mockReset()
   // Nothing stored yet, unless a test says otherwise.
@@ -209,6 +213,13 @@ describe('synthesizeTestSpeech', () => {
     expect(url).toBe(`https://pub.example.com/${TEST_KEY}`)
     expect(azure.synthesizeWithAzure).not.toHaveBeenCalled()
     expect(puts).toHaveLength(0)
+  })
+
+  it('stays silent on a cached press when the Azure key is dead', async () => {
+    storage.objectExists.mockResolvedValue(true)
+    azure.checkAzureKey.mockResolvedValue(false)
+
+    expect(await synthesizeTestSpeech(TEST_REQ)).toBe(null)
   })
 
   /**

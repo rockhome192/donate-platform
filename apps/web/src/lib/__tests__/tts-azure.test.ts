@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { TtsUnavailableError, buildSsml, synthesizeWithAzure } from '@/lib/tts/azure'
+import { TtsUnavailableError, buildSsml, checkAzureKey, synthesizeWithAzure } from '@/lib/tts/azure'
 
 /**
  * The one paid call in this codebase.
@@ -83,5 +83,24 @@ describe('synthesizeWithAzure', () => {
     await expect(synthesizeWithAzure(config, 'สวัสดี', impl)).rejects.toBeInstanceOf(
       TtsUnavailableError,
     )
+  })
+})
+
+describe('checkAzureKey', () => {
+  it('says yes when Azure accepts the key', async () => {
+    const { impl } = mockFetch({ ok: true, status: 200 })
+    expect(await checkAzureKey(config, impl)).toBe(true)
+  })
+
+  it('says no when Azure answers 401', async () => {
+    const { impl } = mockFetch({ ok: false, status: 401 })
+    expect(await checkAzureKey(config, impl)).toBe(false)
+  })
+
+  it('says no when the network fails', async () => {
+    const impl = vi.fn(async () => {
+      throw new Error('offline')
+    }) as unknown as typeof fetch
+    expect(await checkAzureKey(config, impl)).toBe(false)
   })
 })

@@ -15,7 +15,7 @@ import {
   storageConfig,
   type StorageConfig,
 } from '@/lib/storage'
-import { synthesizeWithAzure, type AzureTtsConfig } from './azure'
+import { checkAzureKey, synthesizeWithAzure, type AzureTtsConfig } from './azure'
 import { ttsTextFor, type TtsSubject } from './text'
 
 export { TTS_MAX_CHARS, ttsTextFor, escapeSsml } from './text'
@@ -212,7 +212,10 @@ export async function synthesizeTestSpeech(req: TtsTestRequest): Promise<string 
   // Asked before paying, and a false answer for any reason — bucket unreachable,
   // a timeout, an odd status — costs one re-synthesis rather than a URL pointing
   // at nothing. objectExists is written to fail in that direction.
-  if (await objectExists(storage, key)) return publicUrlForKey(storage, key)
+  if (await objectExists(storage, key)) {
+    if (!(await checkAzureKey(tts))) return null
+    return publicUrlForKey(storage, key)
+  }
 
   return synthesizeToKey(tts, storage, text, key, `test streamer=${req.streamerId}`)
 }

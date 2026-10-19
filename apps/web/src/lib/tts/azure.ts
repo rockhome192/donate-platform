@@ -108,3 +108,26 @@ export async function synthesizeWithAzure(
 
   return { audio, contentType: 'audio/mpeg' }
 }
+
+/**
+ * Asks Azure for a token, which costs nothing, to learn whether the key and
+ * subscription still work. A cached test mp3 cannot tell us that.
+ */
+export async function checkAzureKey(
+  config: AzureTtsConfig,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  try {
+    const res = await fetchImpl(
+      `https://${config.region}.api.cognitive.microsoft.com/sts/v1.0/issueToken`,
+      {
+        method: 'POST',
+        headers: { 'Ocp-Apim-Subscription-Key': config.key },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      },
+    )
+    return res.ok
+  } catch {
+    return false
+  }
+}
